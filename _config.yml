@@ -24,7 +24,7 @@ defaults:
     values:
       layout: default
   - scope:
-      path: "reference"
+      path: "study-material"
     values:
       nav_exclude: true
       search_exclude: true

@@ -1,13 +1,13 @@
 ---
-title: "Reference"
+title: "Study Material"
 nav_exclude: true
 search_exclude: true
-permalink: /reference/
+permalink: /study-material/
 ---
 
-# Reference 문서
+# Study Material
 
-사이드바에 나오지 않는 참고 문서 모음입니다. 이 페이지의 링크나 주소로만 접근할 수 있습니다.
+사이드바에 나오지 않는 학습 자료 모음입니다. 이 페이지의 링크나 주소로만 접근할 수 있습니다.
 
 > 이 문서들은 메뉴에서 숨겨졌을 뿐 **공개된 사이트에 올라가 있습니다**. 주소를 아는 사람은 누구나 볼 수 있습니다.
 
