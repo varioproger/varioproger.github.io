@@ -24,6 +24,12 @@ defaults:
     values:
       layout: default
   - scope:
+      path: "reference"
+    values:
+      nav_exclude: true
+      search_exclude: true
+      render_with_liquid: false
+  - scope:
       path: "doc"
     values:
       render_with_liquid: false
