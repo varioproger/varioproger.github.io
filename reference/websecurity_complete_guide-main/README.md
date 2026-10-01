@@ -1,3 +1,7 @@
+---
+title: "HTTP Security Complete Guide"
+---
+
 # HTTP Security Complete Guide
 
 **9부 47장 + 부록 8편 · 약 985페이지**

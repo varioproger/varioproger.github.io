@@ -1,3 +1,7 @@
+---
+title: "C# Complete Guide Book — 목차 (설계안 v2)"
+---
+
 # C# Complete Guide Book — 목차 (설계안 v2)
 
 **부제**: 첫 줄부터 런타임 내부까지 — 입문자를 C# 마스터로 이끄는 단일 경로

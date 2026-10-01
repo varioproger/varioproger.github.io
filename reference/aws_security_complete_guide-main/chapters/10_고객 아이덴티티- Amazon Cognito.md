@@ -1,3 +1,7 @@
+---
+title: "10장. 고객 아이덴티티: Amazon Cognito"
+---
+
 # 10장. 고객 아이덴티티: Amazon Cognito
 
 > **이 장에서 다루는 것**

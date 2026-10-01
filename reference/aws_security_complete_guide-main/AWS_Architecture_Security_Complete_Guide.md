@@ -1,3 +1,7 @@
+---
+title: "AWS Architecture Security Complete Guide"
+---
+
 # AWS Architecture Security Complete Guide
 ## AWS 아키텍처 보안 완전 정복 가이드
 

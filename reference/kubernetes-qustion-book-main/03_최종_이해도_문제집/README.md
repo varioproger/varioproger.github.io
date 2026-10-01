@@ -1,3 +1,7 @@
+---
+title: "Terraform · Docker · Kubernetes · EKS 최종 이해도 문제집"
+---
+
 # Terraform · Docker · Kubernetes · EKS 최종 이해도 문제집
 
 이 문제집은 용어 암기보다 **전체 구조를 설명하고, 상태를 예측하고, 장애 원인을 증거로 좁히는 능력**을 확인한다. 기존 교재를 1회 이상 읽은 뒤 자료를 덮고 푼다.

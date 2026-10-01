@@ -1,3 +1,7 @@
+---
+title: "15. EKS는 Kubernetes와 AWS 자원 사이의 운영 경계를 정한다"
+---
+
 # 15. EKS는 Kubernetes와 AWS 자원 사이의 운영 경계를 정한다
 
 > 전체 학습 25/35 · 심화

@@ -1,3 +1,7 @@
+---
+title: "2장. 공동 책임 모델 (Shared Responsibility Model)"
+---
+
 # 2장. 공동 책임 모델 (Shared Responsibility Model)
 
 > **이 장에서 다루는 것**

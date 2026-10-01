@@ -1,3 +1,7 @@
+---
+title: "Part IV. 기반 블록 II — 컴퓨트"
+---
+
 # Part IV. 기반 블록 II — 컴퓨트
 
 ## 15장. Amazon EC2 심층 ★★★

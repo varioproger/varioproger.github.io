@@ -1,3 +1,7 @@
+---
+title: "Part II. 설계의 언어"
+---
+
 # Part II. 설계의 언어
 
 ## 6장. Well-Architected Framework — 6개 기둥  ★★

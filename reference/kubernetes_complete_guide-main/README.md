@@ -1,3 +1,7 @@
+---
+title: "Kubernetes Complete Guide"
+---
+
 # Kubernetes Complete Guide
 
 4권의 원서를 분석해 **입문자 → 실무자** 전 범위를 한 권으로 재구성한 쿠버네티스 종합서.

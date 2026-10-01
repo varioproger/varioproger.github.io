@@ -1,3 +1,7 @@
+---
+title: "Master Outline — Node.js: The Complete Guide"
+---
+
 # Master Outline — Node.js: The Complete Guide
 
 Baseline: Node.js `main` @ **27.0.0-pre**. 63 chapters + 8 appendices.

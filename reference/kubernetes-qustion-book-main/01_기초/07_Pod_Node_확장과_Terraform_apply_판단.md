@@ -1,3 +1,7 @@
+---
+title: "07. Pod와 Node가 늘어나면 Terraform apply가 필요한가?"
+---
+
 # 07. Pod와 Node가 늘어나면 Terraform apply가 필요한가?
 
 > 전체 학습 07/35 · 기초

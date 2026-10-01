@@ -1,3 +1,7 @@
+---
+title: "Part VII. 운영과 자동화 — CloudOps"
+---
+
 # Part VII. 운영과 자동화 — CloudOps
 
 ## 35장. Infrastructure as Code  ★★★

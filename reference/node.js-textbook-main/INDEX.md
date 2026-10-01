@@ -1,3 +1,7 @@
+---
+title: "Node.js: The Complete Guide"
+---
+
 # Node.js: The Complete Guide
 
 An original textbook built from the official Node.js documentation (`nodejs/node` @ **27.0.0-pre**).

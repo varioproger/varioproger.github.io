@@ -1,3 +1,7 @@
+---
+title: "Docker · Terraform · Kubernetes · EKS: 초급부터 심화까지"
+---
+
 # Docker · Terraform · Kubernetes · EKS: 초급부터 심화까지
 
 **[기초 01. 큰 그림](01_기초/01_큰_그림.md)부터 시작해 각 장의 ‘다음’을 누르면 순서대로 읽을 수 있다.** 기초 개념 → 실행·배포 → 확장과 관리 경계 → Kubernetes 주제별 심화 → 실습·종합 설계 → 최종 문제 순서다.

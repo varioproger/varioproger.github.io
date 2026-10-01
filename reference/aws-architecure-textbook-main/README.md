@@ -1,3 +1,7 @@
+---
+title: "AWS Architecture Complete Guide"
+---
+
 # AWS Architecture Complete Guide
 
 *원서 5권을 기반으로 재구성한 AWS 아키텍처 완전 가이드 — 입문에서 아키텍트까지*

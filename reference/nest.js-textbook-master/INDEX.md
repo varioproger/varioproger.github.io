@@ -1,3 +1,7 @@
+---
+title: "NestJS: The Complete Guide"
+---
+
 # NestJS: The Complete Guide
 
 공식 NestJS 문서(`content/` 136개 파일)를 바탕으로 새로 집필한 교과서. 기준 버전 **NestJS 11.x** (Express v5 기본, Node 20+, TypeScript 5.x).

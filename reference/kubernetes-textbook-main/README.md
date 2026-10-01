@@ -1,3 +1,7 @@
+---
+title: "Kubernetes Complete Guide — 통합 목차 설계안"
+---
+
 # Kubernetes Complete Guide — 통합 목차 설계안
 
 > 4권의 원서를 분석해 **입문자 → 실무자** 전 범위를 한 권으로 재구성한 목차입니다.

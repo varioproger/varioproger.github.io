@@ -1,3 +1,7 @@
+---
+title: "Authoring Spec — Node.js: The Complete Guide"
+---
+
 # Authoring Spec — Node.js: The Complete Guide
 
 Every chapter writer MUST follow this document exactly. Read it before writing.
