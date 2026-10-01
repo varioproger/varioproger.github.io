@@ -578,17 +578,9 @@ permalink: /reference/
 
 ## node.js-textbook-main
 
-문서 74개
+문서 72개
 
 - [INDEX](node.js-textbook-main/INDEX.html)
-
-<details markdown="1">
-<summary>_meta (2)</summary>
-
-- [AUTHORING-SPEC](node.js-textbook-main/_meta/AUTHORING-SPEC.html)
-- [OUTLINE](node.js-textbook-main/_meta/OUTLINE.html)
-
-</details>
 
 <details markdown="1">
 <summary>appendix (8)</summary>
