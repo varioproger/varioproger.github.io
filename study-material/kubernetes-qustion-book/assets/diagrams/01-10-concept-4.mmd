@@ -1,2 +1,0 @@
-flowchart TB
-N0["새 Pod C · app: orders label"] --> N1["EndpointSlice controller · selector와 Pod 상태 관찰"] --> N2["EndpointSlice · 주소 / 포트 / 준비 상태 갱신"] --> N3["kube-proxy 또는 대체 구현 · 전달 규칙 갱신"] --> N4["이후 새 연결 · 준비된 Pod로 전달"]

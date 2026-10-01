@@ -1,5 +1,0 @@
-flowchart TB
-W["원하는 Pod 2개"] --> C["ReplicaSet controller · 차이 확인"]
-O["관찰한 관리 대상 Pod 1개"] --> C
-C --> A["부족한 Pod 생성 시도"] --> R["실제 상태 다시 관찰"] --> C
-A --> F["중간 실패 가능 · 다음 관찰에서 재시도"] --> R

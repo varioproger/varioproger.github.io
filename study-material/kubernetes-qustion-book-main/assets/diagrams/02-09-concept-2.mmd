@@ -1,5 +1,0 @@
-flowchart TB
-C["ConfigMap 값 변경"] --> ENV["환경 변수 · 기존 프로세스 값은 그대로"]
-C --> VOL["일반 volume 파일 · 지연 갱신 가능"] --> READ["앱이 다시 읽어야 반영"]
-C --> SUB["subPath 마운트 · 자동 갱신 예외"]
-START["Pod 준비 시 kubelet이 참조 값을 주입"] -.-> ENV

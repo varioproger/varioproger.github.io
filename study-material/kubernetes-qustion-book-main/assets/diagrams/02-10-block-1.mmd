@@ -1,6 +1,0 @@
-flowchart LR
-  SA["ServiceAccount orders"] -->|RoleBinding으로 연결| ROLE["Role: study Namespace의 pods get/list"]
-  SA -->|토큰으로 인증된 요청| API["Kubernetes API"]
-  ROLE -.->|인가 판단에 사용| API
-  API -->|허용된 조회| OBJ["Pod 객체"]
-

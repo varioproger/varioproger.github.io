@@ -1,7 +1,0 @@
-flowchart TD
-  DEF["CRD: Backup이라는 API 종류 정의"] --> API["API Server가 Backup 객체 수락"]
-  USER["Backup 객체: 일정과 보존 정책"] --> API
-  OP["Backup Operator: 실행 프로그램"] -.->|Backup과 상태 관찰| API
-  OP -->|작업 생성| JOB["Job 또는 외부 백업 API"]
-  OP -->|결과 status 갱신| API
-

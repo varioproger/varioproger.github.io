@@ -1,9 +1,0 @@
-flowchart TB
-subgraph NODE["같은 노드에서 실행되는 프로세스 · 부모·자식 트리 아님"]
- K["kubelet"]
- C["containerd"]
- S["shim 등"]
- A["orders 앱 · namespace / cgroup / 권한"]
- B["inventory 앱 · 별도 namespace / cgroup / 권한"]
-end
-K & C & S & A & B -->|실행 기반| L["공유하는 노드 Linux 커널"]

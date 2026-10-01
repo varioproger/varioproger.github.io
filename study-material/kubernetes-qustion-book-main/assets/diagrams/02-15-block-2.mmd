@@ -1,6 +1,0 @@
-flowchart LR
-  C["kubectl 실행 위치"] --> N{"endpoint에 도달 가능한가?"}
-  N -->|가능| I{"누구인가: IAM 기반 인증"}
-  I -->|인증 성공| A{"이 Kubernetes 작업이 허용되는가?"}
-  A -->|허용| K["API 작업 수행"]
-

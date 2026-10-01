@@ -1,7 +1,0 @@
-flowchart TB
-subgraph CONTROL["설정 갱신"]
- P["Pod 변화"] -.-> INFO["대상 정보 변화"] -.-> C["AWS Load Balancer Controller"] -.-> T["target group 갱신"]
-end
-subgraph DATA["실제 요청"]
- U["사용자"] --> D["같은 앱 도메인"] --> A["ALB"] --> DEST["현재 사용 가능한 Pod IP:8080"]
-end

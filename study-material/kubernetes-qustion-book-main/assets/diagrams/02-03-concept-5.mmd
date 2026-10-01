@@ -1,5 +1,0 @@
-flowchart TB
-E{"무엇이 종료·삭제되었는가?"}
-E -->|Deployment 아래 컨테이너만 종료| K["kubelet · 같은 Pod 안에서 재시작 가능<br/>Pod UID 유지"]
-E -->|Deployment 아래 Pod 삭제| R["ReplicaSet controller · 대체 Pod 생성<br/>새 UID"]
-E -->|상위 controller 없는 직접 Pod 삭제| N["대체 생성할 controller 없음"]

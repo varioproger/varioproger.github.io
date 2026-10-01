@@ -1,2 +1,0 @@
-flowchart TB
-N0["API · Pod 삭제 의도 기록"] --> N1["kubelet · graceful termination"] --> N2["설정된 preStop hook / 종료 신호 처리"] --> N3["유예 시간 내 종료 대기"] --> N4["시간 초과 시 강제 종료 가능<br/>preStop도 같은 유예 시간에 포함"]

@@ -1,5 +1,0 @@
-flowchart LR
-  P["Pod"] -->|serviceAccountName| SA["ServiceAccount: 누구인가"]
-  B["RoleBinding: 누구에게 무엇을"] -->|subjects| SA
-  B -->|roleRef| R["Role: 허용하는 API 작업"]
-

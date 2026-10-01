@@ -1,3 +1,0 @@
-flowchart TB
-H["HCL 구성 + 기존 state"] -->|provider로 실제 자원 조회| P["변경 계획 · 추가 / 수정 / 교체 / 삭제"]
-P -->|apply| A["의존 관계에 맞춰 외부 API 호출"] --> S["관찰한 결과를 state에 반영"]

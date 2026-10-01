@@ -1,2 +1,0 @@
-flowchart TB
-N0["주문 코드 수정"] --> N1["abc123 커밋 · push / 검토·merge"] --> N2["CI · abc123 checkout"] --> N3["테스트 성공 → Docker 빌드"] --> N4["ECR에 이미지 B push · digest 기록"] --> N5["CD · Deployment.image를 B 참조로 설정"] --> N6["EKS Kubernetes API에 적용"] --> N7["Deployment controller · 새 ReplicaSet 조정"] --> N8["ReplicaSet controller · 새 Pod 생성"] --> N9["Scheduler · 노드 결정"] --> N10["kubelet / runtime · 이미지 B 확보·실행"] --> N11["readiness · ALB target 준비"] --> N12["교체 전략에 따라 이전 Pod 정리"] --> N13["실제 사용자 요청으로 새 버전 확인"]

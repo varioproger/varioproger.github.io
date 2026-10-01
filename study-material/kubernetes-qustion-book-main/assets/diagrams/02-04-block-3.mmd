@@ -1,6 +1,0 @@
-flowchart TD
-  D["Deployment: 원하는 버전과 수량"] -->|소유| OLD["이전 ReplicaSet"]
-  D -->|소유| NEW["새 ReplicaSet"]
-  OLD -->|소유| P1["이전 Pod: 감소"]
-  NEW -->|소유| P2["새 Pod: 증가"]
-

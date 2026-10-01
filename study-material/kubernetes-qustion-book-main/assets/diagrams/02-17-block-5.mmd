@@ -1,6 +1,0 @@
-flowchart LR
-  C["GatewayClass: 구현"] -.-> G["Gateway: listener"]
-  R["HTTPRoute: host와 path"] -->|parentRefs| G
-  R -->|backendRefs| S["Service"]
-  X["ReferenceGrant: 다른 Namespace의 참조 허용"] -.-> S
-

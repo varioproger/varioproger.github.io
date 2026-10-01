@@ -1,4 +1,0 @@
-flowchart TB
-L["LimitRange · 컨테이너 하나의 기본값·허용 범위"] --> P["개별 requests / limits"] --> SUM["Namespace 전체 요청량 합계"]
-Q["ResourceQuota · Namespace 총량 예산"] --> SUM
-SUM --> R["개별 규칙이 맞아도 총량 quota 소진 가능"]

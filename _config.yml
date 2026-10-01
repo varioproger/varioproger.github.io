@@ -1,5 +1,5 @@
 title: varioproger Docs
-description: C#, Kubernetes, NestJS 완전 가이드 모음
+description: C# 게임 서버, NestJS SaaS 백엔드, Docker·Kubernetes 필수 이론 모음
 theme: just-the-docs
 lang: ko
 
@@ -23,12 +23,6 @@ defaults:
       path: ""
     values:
       layout: default
-  - scope:
-      path: "study-material"
-    values:
-      nav_exclude: true
-      search_exclude: true
-      render_with_liquid: false
   - scope:
       path: "doc"
     values:

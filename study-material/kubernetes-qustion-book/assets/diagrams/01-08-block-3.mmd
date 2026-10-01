@@ -1,9 +1,0 @@
-flowchart TB
-    SPEC["Pod 명세: 이 이미지로 실행"] -->|"노드 배정 후 kubelet이 관찰"| K["kubelet: 실행 관리자"]
-    K -->|"CRI API로 요청"| C["containerd: 이미지·컨테이너 관리"]
-    ECR["ECR: 호환 이미지"] -->|"필요한 이미지 내용을 pull"| C
-    C -->|"실행 설정과 작업 전달"| SHIM["shim"]
-    SHIM -->|"호출"| R["runc: OCI runtime 구현"]
-    R -->|"격리 환경에서 시작"| APP["앱 프로세스"]
-    APP -->|"시스템 호출"| KERNEL["노드의 Linux 커널"]
-

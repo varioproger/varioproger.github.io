@@ -1,6 +1,0 @@
-flowchart LR
-  ST["StatefulSet db"] -->|소유| P["db-0: 교체 전 Pod"]
-  P -->|참조| C["PVC data-db-0"]
-  NEW["db-0: 새 UID의 대체 Pod"] -->|같은 claim 참조| C
-  C --> V["PV와 실제 디스크"]
-

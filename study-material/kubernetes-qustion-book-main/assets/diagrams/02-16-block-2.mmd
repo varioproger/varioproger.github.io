@@ -1,8 +1,0 @@
-flowchart LR
-  P["배치 불가능한 Pod"] -.-> K["Karpenter"]
-  NP["NodePool"] -.-> K
-  NC["EC2NodeClass"] -.-> K
-  K --> C["NodeClaim과 EC2 공급"]
-  C --> N["Node 등록"]
-  N --> S["Scheduler가 Pod 배치"]
-

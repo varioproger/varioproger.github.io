@@ -1,6 +1,0 @@
-flowchart TD
-  AWS["AWS VPC subnet의 주소 공간"] -->|ENI와 IP 할당| IPAM["노드의 VPC CNI IP 관리"]
-  K["kubelet와 runtime: Pod sandbox 요청"] --> CNI["CNI 플러그인: 네트워크 설정"]
-  IPAM -->|사용할 주소 제공| CNI
-  CNI --> P["Pod 인터페이스·IP·경로"]
-

@@ -1,8 +1,0 @@
-flowchart TB
-subgraph SINGLE["한 Node에 집중"]
- A["Node A · Pod 1 / Pod 2 / Pod 3<br/>노드 장애가 세 Pod에 함께 영향"]
-end
-subgraph ONEAZ["Node가 달라도 같은 AZ"]
- B["Node A / B / C · Pod 분산<br/>AZ 장애는 함께 영향"]
-end
-T["topology spread / anti-affinity로 분산 의도 표현"] --> CHECK["실제 배치 결과 확인"]

@@ -1,9 +1,0 @@
-flowchart TB
-    DIGEST["CD가 선택한 ECR 이미지 digest"] -->|"image 필드에 반영"| DEP["Deployment orders: replicas 3"]
-    CONFIG["환경 변수·Secret 참조·CPU/메모리·readiness"] -->|"Pod template에 반영"| DEP
-    DEP -->|"controller가 template으로 생성"| PODS["Pod 집합: app=orders / 앱은 8080 listen"]
-    SVC["Service orders: selector app=orders / port 80"] -.->|"label로 대상 선택 / targetPort 8080"| PODS
-    ING["Ingress: orders.example.com / 경로 / "] -.->|"backend Service orders:80 참조"| SVC
-    ING -.->|"LB controller가 관찰"| LB["AWS ALB와 target group 구성"]
-    PODS -.->|"대상 IP와 준비 상태 반영"| LB
-

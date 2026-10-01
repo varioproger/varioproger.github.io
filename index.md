@@ -11,6 +11,6 @@ permalink: /
 
 | 카테고리 | 구성 | 설명 |
 |---|---|---|
-| [C# Complete Guide](doc/csharp_complete_guide/) | 3권 · 84장 · 부록 10 | 첫 줄부터 런타임 내부까지, C#/.NET 단일 경로 |
-| [Kubernetes Complete Guide](doc/kubernetes_complete_guide/) | 7부 · 32장 · 부록 5 | 입문자에서 실무자까지 쿠버네티스 전 범위 |
-| [NestJS Complete Guide](doc/nest.js-textbook/) | 3 Part · 59장 · 부록 4 | NestJS 11.x 교과서 |
+| [C# 방치형 RPG 서버 필수 이론](doc/csharp-idle-rpg-server-theory/) | 13부 | C#으로 모바일 방치형 RPG 게임 서버를 만들 때 필요한 선수 지식 |
+| [NestJS SaaS 백엔드 필수 이론](doc/nestjs-saas-essential-theory/) | 13 Part | Nest.js로 SaaS 백엔드를 구현할 때 필요한 이론 |
+| [Docker와 Kubernetes 필수 이론](doc/docker-k8s-essential-theory/) | 4부 · 26장 · 부록 2 | Docker와 Kubernetes로 인프라를 구축할 때 알아야 하는 기초 이론 |

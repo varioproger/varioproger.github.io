@@ -1,9 +1,0 @@
-flowchart TB
-P1["같은 방향의 적용 정책 A · 허용 집합"] --> U["정책 A ∪ 정책 B · 허용 합집합"]
-P2["같은 방향의 적용 정책 B · 허용 집합"] --> U
-subgraph AND["같은 from 항목"]
- N1["namespaceSelector AND podSelector<br/>두 조건을 함께 만족"]
-end
-subgraph OR["서로 다른 from 항목"]
- N2["namespaceSelector OR podSelector<br/>둘 중 하나를 만족"]
-end

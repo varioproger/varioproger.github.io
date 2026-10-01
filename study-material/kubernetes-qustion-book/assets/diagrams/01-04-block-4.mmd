@@ -1,9 +1,0 @@
-sequenceDiagram
-participant A as 주문 앱
-participant D as CoreDNS
-participant N as 노드 Service 전달 규칙
-participant P as inventory Pod
-A->>D: inventory.shop.svc.cluster.local 조회
-D-->>A: 일반 Service의 ClusterIP
-A->>N: ClusterIP:port로 접속
-N->>P: 선택된 Pod IP:targetPort로 전달

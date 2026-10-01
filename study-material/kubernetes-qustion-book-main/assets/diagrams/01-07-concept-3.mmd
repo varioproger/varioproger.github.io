@@ -1,6 +1,0 @@
-flowchart TB
-E["Events · 무엇이 부족한가?<br/>복제 수 / 배치 용량 / IP / 권한 / 이미지 / 저장소"] --> P["조정 프로그램 확인<br/>HPA / CA / Karpenter / AWS 그룹 기능"]
-P --> LIMIT["현재 정책 안에서 해결 가능한가?<br/>최대 수 / 인스턴스 / zone / subnet / IAM / 할당량"] --> O{"바꿀 설정의 소유자는?"}
-O -->|Terraform| TF["HCL 변경 → plan → apply"]
-O -->|GitOps| G["저장소 변경"]
-O -->|동적 수량 controller| C["해당 controller 상태·정책 확인"]
