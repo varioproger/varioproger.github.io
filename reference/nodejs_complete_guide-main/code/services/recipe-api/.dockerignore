@@ -1,0 +1,41 @@
+# 32장 32.2절 대응 - 빌드 컨텍스트를 줄이고 비밀/로컬 산출물이 이미지에 섞이지 않게 한다.
+# 주의: 이 Dockerfile 의 빌드 컨텍스트는 모노레포 루트(code/)이므로,
+#      도커가 실제로 읽는 것은 code/.dockerignore 다. 이 파일은 서비스 단독 빌드용이자
+#      루트 .dockerignore 에 그대로 반영해야 할 규칙 목록이다.
+
+# 호스트의 node_modules 는 절대 넣지 않는다.
+# 플랫폼별 네이티브 바이너리가 섞여 컨테이너 안에서 깨지고, 컨텍스트도 크게 부풀린다.
+node_modules
+**/node_modules
+
+# 버전 관리/로컬 도구
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# 비밀. 이미지 레이어에 들어가면 삭제해도 이전 레이어에 남는다.
+.env
+.env.*
+*.pem
+*.key
+
+# 테스트/커버리지/로그 - 런타임에 필요 없다
+test
+**/*.test.js
+coverage
+.nyc_output
+*.log
+npm-debug.log*
+
+# 도커 관련 파일 자체
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+
+# 기타 산출물
+tmp
+dist
+*.md
+!README.md

@@ -1,0 +1,7 @@
+flowchart TB
+S["startup · 초기 시작이 끝났는가?"] --> OK["성공 전 liveness / readiness 지연"]
+S --> FAIL["임계 횟수 실패 · 컨테이너 재시작 판단"]
+R["readiness · 지금 요청을 받을 수 있는가?"] --> OFF["실패 · 일반 Service의 준비된 대상에서 제외<br/>이 실패만으로 재시작하지 않음"]
+L["liveness · 계속 실행해도 회복 못 하는가?"] --> RESTART["임계 횟수 실패 · kubelet이 종료·재시작 처리"]
+OK ~~~ R
+OFF ~~~ L

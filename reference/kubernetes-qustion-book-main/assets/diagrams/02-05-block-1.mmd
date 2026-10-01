@@ -1,0 +1,9 @@
+flowchart TD
+  A["Pod 객체 생성"] --> B["Scheduler: Node 배정"]
+  B --> C["kubelet: 필요한 준비 조정"]
+  C --> D["이미지 확보 / 볼륨 준비 / Pod sandbox와 네트워크"]
+  D --> E["일반 init container 완료"]
+  E --> F["앱 컨테이너 시작"]
+  F --> G["startup와 readiness 조건 확인"]
+  G --> H["Ready 대상이 되어 요청 처리"]
+

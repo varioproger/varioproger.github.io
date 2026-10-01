@@ -1,0 +1,2 @@
+flowchart TB
+N0["Git push"] --> N1["CI checkout / test"] --> N2["Docker build"] --> N3["ECR push"] --> N4["Deployment image → 새 digest · Kubernetes API 적용"] --> N5["controller · ReplicaSet / Pod 생성"] --> N6["scheduler · Node 선택"] --> N7["kubelet → CRI → containerd"] --> N8["image pull · 프로세스 실행"] --> N9["readiness 성공"] --> N10["Service endpoint 편입"]

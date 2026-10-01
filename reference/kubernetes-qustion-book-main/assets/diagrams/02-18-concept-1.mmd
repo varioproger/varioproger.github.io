@@ -1,0 +1,2 @@
+flowchart TB
+N0["rollout / Ready 수 확인"] --> N1["새 Pod Ready=false?<br/>요청 준비 실패 조사"] --> N2["컨테이너 로그 / readiness 응답<br/>404이면 path 불일치 가설 검증"] --> N3["EndpointSlice · 기존 Ready 대상 존재 확인"] --> N4["ALB target health와 비교"]

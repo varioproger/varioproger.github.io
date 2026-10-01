@@ -1,0 +1,8 @@
+flowchart LR
+  P["Pod"] -->|claimName| C["PVC: 필요한 저장소"]
+  C -->|storageClassName| S["StorageClass: 공급 정책"]
+  S -.-> X["provisioner / CSI driver"]
+  X --> V["PV: 공급된 저장소 표현"]
+  C <-->|바인딩| V
+  V -.-> D["실제 저장 장치"]
+

@@ -1,0 +1,5 @@
+flowchart TB
+VS["VolumeSnapshot · 요청"] <-->|연결| VC["VolumeSnapshotContent · 공급 결과 연결"] --> SNAP["실제 snapshot 데이터"]
+POL["삭제 정책 · Retain / Delete"] -.-> VC
+VERIFY["metadata 존재만으로 복원 가능성을 단정하지 않음<br/>실제 데이터·정책·복원 확인"] -.-> SNAP
+PVC["비교 · PVC 요청"] <-->|바인딩| PV["PV 공급 결과"]

@@ -1,0 +1,4 @@
+flowchart TB
+I["선택적 image index · OS / CPU별 manifest 참조"] --> M["image manifest"]
+M -->|참조| C["config · 시작 명령 / 환경 변수 / 작업 디렉터리"]
+M -->|참조| L["layers · 파일시스템 변경분"]

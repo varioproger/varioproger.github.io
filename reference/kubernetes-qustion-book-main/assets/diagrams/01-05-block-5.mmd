@@ -1,0 +1,14 @@
+sequenceDiagram
+participant U as 사용자
+participant D as DNS
+participant L as ALB:443
+participant P as orders Pod IP:8080
+participant DB as DB
+U->>D: orders.example.com 조회
+D-->>U: ALB 접속 주소
+U->>L: 인터넷으로 HTTPS 요청
+L->>P: 선택된 주문 API로 전달
+P->>DB: 업무 데이터 처리
+DB-->>P: 결과
+P-->>L: 주문 API 응답
+L-->>U: 응답

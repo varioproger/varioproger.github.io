@@ -1,0 +1,6 @@
+flowchart TB
+subgraph NODE["Node · 머신"]
+ K["kubelet · Pod 실행 요청 / 상태 보고"] -->|CRI API 약속| C["containerd · 이미지 / 컨테이너 수명 관리"]
+ S["shim / runc 등 · 저수준 실행·프로세스 관리"]
+ A["앱 프로세스 · 실제 주문 요청 처리"]
+end

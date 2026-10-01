@@ -1,0 +1,7 @@
+flowchart TB
+subgraph BEFORE["교체 전"]
+ S1["Service IP:80"] --> A["Pod A의 IP:8080"]
+end
+subgraph AFTER["대상 목록·전달 규칙 갱신 후"]
+ S2["같은 Service IP:80"] --> B["새 Pod B의 IP:8080"]
+end

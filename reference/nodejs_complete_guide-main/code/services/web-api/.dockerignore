@@ -1,0 +1,19 @@
+# 빌드 컨텍스트에서 제외한다. 컨텍스트가 작을수록 전송이 빠르고,
+# 실수로 비밀 값이나 로컬 전용 파일이 이미지에 섞여 들어가지 않는다.
+node_modules
+npm-debug.log*
+.git
+.gitignore
+.env
+.env.*
+*.md
+Dockerfile
+.dockerignore
+coverage
+.nyc_output
+test
+*.log
+.DS_Store
+.vscode
+.idea
+tmp

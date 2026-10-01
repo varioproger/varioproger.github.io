@@ -1,0 +1,4 @@
+flowchart TB
+C["CSI controller 측 driver / sidecar"] -->|AWS API 조정| D["volume 생성·연결 요청"] --> B["PVC Bound · 연결 결정"] --> N["CSI node plugin · 노드 mount"]
+P["PVC Pending"] -.-> F["StorageClass / 프로비저닝 IAM / AZ 선택"]
+B -.-> M["Bound 뒤에도 mount 실패 가능<br/>노드 단계 Events 확인"]

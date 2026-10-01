@@ -1,0 +1,31 @@
+{
+  "name": "nodejs-complete-guide",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "『Node.js Complete Guide』 예제 저장소 — recipe-api와 web-api 두 서비스를 34개 장에 걸쳐 발전시킨다",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev": "echo '터미널 두 개를 열어 각각 실행한다: npm run dev -w recipe-api / npm run dev -w web-api'",
+    "dev:recipe": "npm run dev -w recipe-api",
+    "dev:web": "npm run dev -w web-api",
+    "start:recipe": "npm start -w recipe-api",
+    "start:web": "npm start -w web-api",
+    "test": "node --test --experimental-test-coverage services/*/test/",
+    "test:watch": "node --test --watch services/*/test/",
+    "lint": "echo 'lint 자리표시자 — 33장에서 ESLint 설정을 추가한다' && exit 0",
+    "infra:up": "docker compose -f infra/docker-compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose.yml down -v"
+  },
+  "devDependencies": {
+    "eslint": "^9.12.0",
+    "pino-pretty": "^11.2.2"
+  }
+}

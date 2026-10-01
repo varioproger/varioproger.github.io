@@ -1,0 +1,36 @@
+{
+  "name": "@ncg/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "두 예제 서비스가 공유하는 횡단 관심사 모듈: 로깅·메트릭·추적·오류·HTTP 클라이언트·종료·설정",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./logger": "./src/logger.js",
+    "./metrics": "./src/metrics.js",
+    "./tracing": "./src/tracing.js",
+    "./errors": "./src/errors.js",
+    "./http-client": "./src/http-client.js",
+    "./shutdown": "./src/shutdown.js",
+    "./config": "./src/config.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "src"
+  ],
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.50.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.53.0",
+    "@opentelemetry/resources": "^1.26.0",
+    "@opentelemetry/sdk-node": "^0.53.0",
+    "@opentelemetry/sdk-trace-base": "^1.26.0",
+    "@opentelemetry/semantic-conventions": "^1.27.0",
+    "pino": "^9.4.0",
+    "prom-client": "^15.1.3"
+  }
+}

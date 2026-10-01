@@ -1,0 +1,188 @@
+# 『Node.js Complete Guide』 인프라 스택 (32.4절 Docker Compose 오케스트레이션 대응)
+#
+# 이 파일은 "의존 인프라만" 띄운다. recipe-api / web-api 같은 서비스 컨테이너는
+# 포함하지 않는다. 개발 중에는 서비스를 호스트에서 `node --watch` 로 직접 띄우고
+# DB·캐시·브로커·관측 도구만 컨테이너로 두는 편이 반복 주기가 훨씬 짧기 때문이다.
+#
+#   기동:  docker compose -f infra/docker-compose.yml up -d
+#   정지:  docker compose -f infra/docker-compose.yml down
+#   초기화: docker compose -f infra/docker-compose.yml down -v   (볼륨까지 삭제)
+
+name: ncg   # 프로젝트 이름. 컨테이너/네트워크/볼륨 접두사가 ncg_ 로 통일된다
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — recipe-api의 주 저장소 (20장)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: ncg-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ncg
+      POSTGRES_PASSWORD: ncg_dev_password   # 개발 전용. 운영 비밀번호는 시크릿으로 주입한다
+      POSTGRES_DB: ncg
+      # 컨테이너 초기화 시 인증 방식을 명시. alpine 이미지의 기본값 신뢰(trust)를 막는다
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+      TZ: Asia/Seoul
+    ports:
+      - "5432:5432"       # 호스트에서 psql 로 붙을 수 있게 노출한다
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready 는 접속 가능 여부만 확인하므로 가볍다.
+      # -U 를 주지 않으면 컨테이너의 기본 OS 사용자(root)로 검사해 실패한다
+      test: ["CMD-SHELL", "pg_isready -U ncg -d ncg"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s   # 초기 initdb 동안의 실패는 재시도 횟수에서 제외한다
+
+  # ---------------------------------------------------------------------------
+  # Redis — 캐시, 레이트 리미터, 분산 락 (23·24장)
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: ncg-redis
+    restart: unless-stopped
+    # appendonly 로 AOF 를 켜서 재시작해도 캐시 워밍업을 다시 하지 않게 한다.
+    # maxmemory-policy 는 캐시 용도이므로 LRU 로 둔다(24장 경계 있는 캐시 논의 참고)
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ — 비동기 메시징과 작업 큐 (25장). management 태그는 웹 UI 를 포함한다
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: ncg-rabbitmq
+    restart: unless-stopped
+    hostname: ncg-rabbitmq   # RabbitMQ 는 노드 이름에 호스트명을 쓴다. 고정하지 않으면
+                             # 컨테이너 재생성 시 기존 데이터 디렉터리를 인식하지 못한다
+    environment:
+      RABBITMQ_DEFAULT_USER: ncg
+      RABBITMQ_DEFAULT_PASS: ncg_dev_password
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "5672:5672"     # AMQP 프로토콜 포트
+      - "15672:15672"   # 관리 UI (http://localhost:15672)
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      # rabbitmq-diagnostics 는 노드가 실제로 요청을 받을 준비가 됐는지까지 본다
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s   # 얼랭 VM 부팅이 느리므로 넉넉히 준다
+
+  # ---------------------------------------------------------------------------
+  # Prometheus — 메트릭 수집 (30장)
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: ncg-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d   # 개발용이므로 7일이면 충분하다
+      - --web.enable-lifecycle             # POST /-/reload 로 설정 리로드 허용
+    ports:
+      - "9090:9090"
+    volumes:
+      # 설정 파일은 읽기 전용으로 마운트한다. 컨테이너가 설정을 바꿀 이유가 없다
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    extra_hosts:
+      # 리눅스 도커에는 host.docker.internal 이 기본 정의되어 있지 않다.
+      # 호스트에서 돌리는 recipe-api/web-api 를 스크레이프하려면 이 매핑이 필요하다
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Grafana — 대시보드 (30장)
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: ncg-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"    # 개발 편의상 로그인 없이 대시보드 열람 허용
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_INSTALL_PLUGINS: ""
+    ports:
+      - "3001:3000"   # 컨테이너 내부는 3000. web-api 가 호스트 3000 을 쓰므로 3001 로 매핑한다
+    volumes:
+      # 프로비저닝 디렉터리를 마운트하면 데이터소스가 기동과 함께 자동 등록된다
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      prometheus:
+        condition: service_healthy   # 데이터소스 대상이 살아난 뒤 뜨게 한다
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:3000/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ---------------------------------------------------------------------------
+  # Jaeger — 분산 추적 (31장). all-in-one 은 collector+query+메모리 저장소를 한 컨테이너에 담는다
+  # ---------------------------------------------------------------------------
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    container_name: ncg-jaeger
+    restart: unless-stopped
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"   # OTLP 수신기를 켠다. OpenTelemetry SDK 가 이 포트로 보낸다
+      SPAN_STORAGE_TYPE: memory
+      MEMORY_MAX_TRACES: "20000"       # 메모리 저장소이므로 상한을 둔다(무제한이면 OOM)
+    ports:
+      - "16686:16686"   # Jaeger UI (http://localhost:16686)
+      - "4317:4317"     # OTLP gRPC 수신
+      - "4318:4318"     # OTLP HTTP 수신 — 이 책의 예제가 쓰는 포트
+    volumes:
+      - jaeger-data:/badger   # 메모리 저장소에서는 비어 있지만 저장소 교체 시를 위해 둔다
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:16686/"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+# 명명 볼륨. 컨테이너를 지워도 데이터는 남는다. 완전 초기화는 `down -v`
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  prometheus-data:
+  grafana-data:
+  jaeger-data:
+
+# 모든 서비스가 같은 기본 네트워크(ncg_default)에 붙는다.
+# 컨테이너끼리는 서비스 이름(postgres, redis, ...)으로 서로를 찾는다
+networks:
+  default:
+    name: ncg-net

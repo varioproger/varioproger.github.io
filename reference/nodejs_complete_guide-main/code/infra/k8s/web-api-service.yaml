@@ -1,0 +1,23 @@
+# web-api Service (32.8절)
+#
+# Ingress 뒤에 두므로 타입은 ClusterIP 로 충분하다.
+# LoadBalancer 로 바꾸면 클라우드 로드 밸런서가 서비스마다 하나씩 생겨 비용이 늘어난다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-api
+  namespace: ncg
+  labels:
+    app: web-api
+spec:
+  type: ClusterIP
+  selector:
+    app: web-api
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+  # SSE 연결은 한 파드에 오래 붙어 있으므로 세션 고정이 필요 없다.
+  # (연결이 끊기면 클라이언트가 재연결하며 아무 파드에나 다시 붙으면 된다)
+  sessionAffinity: None

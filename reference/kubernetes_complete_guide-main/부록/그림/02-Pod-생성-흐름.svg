@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 720" width="980" height="720" font-family="'Noto Sans KR','Malgun Gothic','Noto Sans CJK KR','Apple SD Gothic Neo','Nanum Gothic',sans-serif">
+  <style>
+    .bg   { fill:#ffffff; }
+    .ttl  { font-size:15px; font-weight:700; fill:#243447; }
+    .sub  { font-size:11px; fill:#5c6b7a; }
+    .lane { fill:#f7f9fc; stroke:#c8d3e0; stroke-width:1.2; rx:8; }
+    .lh   { font-size:12px; font-weight:700; fill:#42536a; }
+    .step { fill:#ffffff; stroke:#5b7fa6; stroke-width:1.6; rx:6; }
+    .stepA{ fill:#eef4fb; stroke:#3f6f9e; stroke-width:1.8; rx:6; }
+    .stepG{ fill:#eef5ee; stroke:#5e8f5e; stroke-width:1.6; rx:6; }
+    .stepO{ fill:#fff7ed; stroke:#c98a34; stroke-width:1.6; rx:6; }
+    .num  { font-size:11px; font-weight:700; fill:#ffffff; }
+    .cir  { fill:#3f6f9e; }
+    .n    { font-size:12px; font-weight:600; fill:#1f2d3d; }
+    .d    { font-size:10px; fill:#5c6b7a; }
+    .ar   { stroke:#7f8fa4; stroke-width:1.8; fill:none; }
+    .note { font-size:10px; fill:#8a6a2f; }
+  </style>
+  <rect class="bg" x="0" y="0" width="980" height="720"/>
+
+  <text class="ttl" x="24" y="30">Pod 하나가 만들어지기까지</text>
+  <text class="sub" x="24" y="48">kubectl apply 한 번이 실제 컨테이너가 되기까지 거치는 경로. 각 단계가 독립된 조정 루프다.</text>
+
+  <!-- 레인 -->
+  <rect class="lane" x="24" y="66"  width="932" height="112"/>
+  <text class="lh" x="40" y="86">클라이언트</text>
+  <rect class="lane" x="24" y="188" width="932" height="200"/>
+  <text class="lh" x="40" y="208">컨트롤 플레인</text>
+  <rect class="lane" x="24" y="398" width="932" height="300"/>
+  <text class="lh" x="40" y="418">워커 노드</text>
+
+  <!-- 1 -->
+  <rect class="step" x="180" y="96" width="230" height="62"/>
+  <circle class="cir" cx="196" cy="112" r="10"/><text class="num" x="196" y="116" text-anchor="middle">1</text>
+  <text class="n" x="295" y="118" text-anchor="middle">kubectl apply -f pod.yaml</text>
+  <text class="d" x="295" y="136" text-anchor="middle">YAML → HTTPS POST 요청</text>
+
+  <!-- 2 -->
+  <rect class="stepA" x="180" y="216" width="230" height="72"/>
+  <circle class="cir" cx="196" cy="232" r="10"/><text class="num" x="196" y="236" text-anchor="middle">2</text>
+  <text class="n" x="295" y="240" text-anchor="middle">kube-apiserver</text>
+  <text class="d" x="295" y="257" text-anchor="middle">인증 → 인가 → 어드미션</text>
+  <text class="d" x="295" y="272" text-anchor="middle">(기본값 주입 · 정책 검증)</text>
+
+  <!-- 3 -->
+  <rect class="stepO" x="450" y="216" width="200" height="72"/>
+  <circle class="cir" cx="466" cy="232" r="10"/><text class="num" x="466" y="236" text-anchor="middle">3</text>
+  <text class="n" x="550" y="248" text-anchor="middle">etcd 저장</text>
+  <text class="d" x="550" y="266" text-anchor="middle">spec.nodeName 은 아직 비어 있다</text>
+
+  <!-- 4 -->
+  <rect class="stepA" x="690" y="216" width="240" height="72"/>
+  <circle class="cir" cx="706" cy="232" r="10"/><text class="num" x="706" y="236" text-anchor="middle">4</text>
+  <text class="n" x="810" y="240" text-anchor="middle">kube-scheduler</text>
+  <text class="d" x="810" y="257" text-anchor="middle">필터링 → 스코어링 → 노드 선택</text>
+  <text class="d" x="810" y="272" text-anchor="middle">spec.nodeName 을 채운다</text>
+
+  <!-- 5 -->
+  <rect class="step" x="180" y="310" width="470" height="58"/>
+  <circle class="cir" cx="196" cy="326" r="10"/><text class="num" x="196" y="330" text-anchor="middle">5</text>
+  <text class="n" x="415" y="332" text-anchor="middle">해당 노드의 kubelet이 watch로 변경을 감지</text>
+  <text class="d" x="415" y="350" text-anchor="middle">API 서버가 명령하지 않는다 — kubelet이 스스로 가져간다</text>
+
+  <!-- 6 -->
+  <rect class="step" x="180" y="428" width="330" height="52"/>
+  <circle class="cir" cx="196" cy="444" r="10"/><text class="num" x="196" y="448" text-anchor="middle">6</text>
+  <text class="n" x="345" y="450" text-anchor="middle">cgroup 계층 생성</text>
+  <text class="d" x="345" y="467" text-anchor="middle">QoS 클래스에 따라 위치가 결정된다</text>
+
+  <rect class="stepG" x="540" y="428" width="390" height="52"/>
+  <circle class="cir" cx="556" cy="444" r="10"/><text class="num" x="556" y="448" text-anchor="middle">7</text>
+  <text class="n" x="740" y="450" text-anchor="middle">볼륨 마운트 &#160;·&#160; CSI</text>
+  <text class="d" x="740" y="467" text-anchor="middle">NodeStageVolume → NodePublishVolume</text>
+
+  <rect class="step" x="180" y="496" width="330" height="52"/>
+  <circle class="cir" cx="196" cy="512" r="10"/><text class="num" x="196" y="516" text-anchor="middle">8</text>
+  <text class="n" x="345" y="518" text-anchor="middle">이미지 pull</text>
+  <text class="d" x="345" y="535" text-anchor="middle">imagePullPolicy · imagePullSecrets</text>
+
+  <rect class="stepG" x="540" y="496" width="390" height="52"/>
+  <circle class="cir" cx="556" cy="512" r="10"/><text class="num" x="556" y="516" text-anchor="middle">9</text>
+  <text class="n" x="740" y="518" text-anchor="middle">샌드박스(pause) 생성 &#160;·&#160; CRI → CNI</text>
+  <text class="d" x="740" y="535" text-anchor="middle">네트워크 네임스페이스 생성 · IP 할당</text>
+
+  <rect class="step" x="180" y="564" width="750" height="52"/>
+  <circle class="cir" cx="196" cy="580" r="10"/><text class="num" x="196" y="584" text-anchor="middle">10</text>
+  <text class="n" x="555" y="586" text-anchor="middle">init 컨테이너 순차 실행 → 앱 컨테이너 동시 시작 → postStart 훅</text>
+  <text class="d" x="555" y="603" text-anchor="middle">init 이 모두 성공(exit 0)해야 다음으로 넘어간다</text>
+
+  <rect class="step" x="180" y="632" width="750" height="52"/>
+  <circle class="cir" cx="196" cy="648" r="10"/><text class="num" x="196" y="652" text-anchor="middle">11</text>
+  <text class="n" x="555" y="654" text-anchor="middle">프로브 시작 → status 보고 → Ready=True → Service 엔드포인트에 등록</text>
+  <text class="d" x="555" y="671" text-anchor="middle">startup 통과 후 liveness · readiness 가 동작한다</text>
+
+  <!-- 화살표 -->
+  <path class="ar" d="M295 158 L295 216" marker-end="url(#a)"/>
+  <path class="ar" d="M410 252 L450 252" marker-end="url(#a)"/>
+  <path class="ar" d="M650 252 L690 252" marker-end="url(#a)"/>
+  <path class="ar" d="M810 288 L810 300 L415 300 L415 310" marker-end="url(#a)"/>
+  <path class="ar" d="M345 368 L345 428" marker-end="url(#a)"/>
+  <path class="ar" d="M510 454 L540 454" marker-end="url(#a)"/>
+  <path class="ar" d="M345 480 L345 496" marker-end="url(#a)"/>
+  <path class="ar" d="M510 522 L540 522" marker-end="url(#a)"/>
+  <path class="ar" d="M740 548 L740 556 L555 556 L555 564" marker-end="url(#a)"/>
+  <path class="ar" d="M555 616 L555 632" marker-end="url(#a)"/>
+
+  <text class="note" x="690" y="330">4 → 5 사이가 스케줄링의 경계.</text>
+  <text class="note" x="690" y="346">이후는 전부 노드의 일이다.</text>
+
+  <defs>
+    <marker id="a" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#7f8fa4"/>
+    </marker>
+  </defs>
+</svg>

@@ -1,0 +1,73 @@
+# Prometheus 스크레이프 설정 (30장)
+#
+# 이 책의 개발 환경에서는 recipe-api / web-api 를 호스트에서 직접 띄운다.
+# 컨테이너 안의 Prometheus 가 호스트를 가리키려면 host.docker.internal 이 필요하며,
+# 리눅스에서는 docker-compose.yml 의 extra_hosts(host-gateway)로 그 이름을 만들어 준다.
+
+global:
+  scrape_interval: 15s       # 기본 수집 주기
+  scrape_timeout: 10s        # scrape_interval 보다 작아야 한다
+  evaluation_interval: 15s   # 알람 규칙 평가 주기
+  external_labels:
+    cluster: ncg-dev
+    environment: development
+
+# 알람 규칙 파일. 지금은 비어 있고 30장에서 채운다
+rule_files: []
+  # - /etc/prometheus/rules/*.yml
+
+scrape_configs:
+  # ---------------------------------------------------------------------------
+  # Prometheus 자기 자신 — 수집이 밀리는지(scrape duration) 확인용
+  # ---------------------------------------------------------------------------
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # ---------------------------------------------------------------------------
+  # recipe-api — 호스트 4000 포트
+  # ---------------------------------------------------------------------------
+  - job_name: recipe-api
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["host.docker.internal:4000"]
+        labels:
+          service: recipe-api
+          tier: backend
+    relabel_configs:
+      # instance 레이블을 host.docker.internal:4000 대신 읽기 쉬운 이름으로 바꾼다
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: recipe-api-1
+
+  # ---------------------------------------------------------------------------
+  # web-api — 호스트 3000 포트
+  # ---------------------------------------------------------------------------
+  - job_name: web-api
+    metrics_path: /metrics
+    scheme: http
+    static_configs:
+      - targets: ["host.docker.internal:3000"]
+        labels:
+          service: web-api
+          tier: edge
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: web-api-1
+
+  # ---------------------------------------------------------------------------
+  # 수평 확장 실습(26장)에서 web-api 를 3개 띄울 때 사용하는 잡.
+  # 인스턴스가 실제로 없으면 target 이 down 으로 표시될 뿐 수집에는 지장이 없다
+  # ---------------------------------------------------------------------------
+  - job_name: web-api-cluster
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - "host.docker.internal:3000"
+          - "host.docker.internal:3001"
+          - "host.docker.internal:3002"
+        labels:
+          service: web-api
+          tier: edge

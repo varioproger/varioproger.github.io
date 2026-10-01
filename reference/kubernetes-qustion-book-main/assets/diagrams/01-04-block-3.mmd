@@ -1,0 +1,7 @@
+flowchart TB
+subgraph BUILD["빌드 측"]
+ D["Docker 도구"] --> I["OCI / Docker 호환 이미지"] --> E["ECR"]
+end
+subgraph RUN["실행 측"]
+ K["kubelet"] -->|CRI API| C["containerd"] --> R["OCI runtime · 예: runc"] --> P["앱 프로세스"]
+end

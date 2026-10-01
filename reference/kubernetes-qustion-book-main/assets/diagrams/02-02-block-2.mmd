@@ -1,0 +1,6 @@
+flowchart TD
+  D["Deployment"] -->|소유| R["ReplicaSet"]
+  R -->|소유| P["Pod"]
+  S["Service"] -.->|label로 선택| P
+  P -.->|이름으로 참조| C["ConfigMap / Secret / PVC / ServiceAccount"]
+

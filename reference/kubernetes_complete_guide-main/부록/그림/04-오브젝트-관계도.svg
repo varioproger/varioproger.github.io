@@ -1,0 +1,183 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 760" width="980" height="760" font-family="'Noto Sans KR','Malgun Gothic','Noto Sans CJK KR','Apple SD Gothic Neo','Nanum Gothic',sans-serif">
+  <style>
+    .bg   { fill:#ffffff; }
+    .ttl  { font-size:15px; font-weight:700; fill:#243447; }
+    .sub  { font-size:11px; fill:#5c6b7a; }
+    .zone { fill:#f7f9fc; stroke:#c8d3e0; stroke-width:1.2; rx:9; }
+    .zt   { font-size:12px; font-weight:700; fill:#42536a; }
+    .wk   { fill:#eef4fb; stroke:#3f6f9e; stroke-width:1.7; rx:7; }
+    .net  { fill:#eef5ee; stroke:#5e8f5e; stroke-width:1.7; rx:7; }
+    .cfg  { fill:#fdf6ee; stroke:#c98a34; stroke-width:1.7; rx:7; }
+    .sto  { fill:#f5eff8; stroke:#8a6ba8; stroke-width:1.7; rx:7; }
+    .pod  { fill:#ffffff; stroke:#5b7fa6; stroke-width:1.5; rx:6; }
+    .plain{ fill:#ffffff; stroke:#a9b6c6; stroke-width:1.4; rx:7; }
+    .n    { font-size:12px; font-weight:600; fill:#1f2d3d; }
+    .d    { font-size:10px; fill:#5c6b7a; }
+    .own  { stroke:#3f6f9e; stroke-width:2; fill:none; }
+    .sel  { stroke:#5e8f5e; stroke-width:1.8; fill:none; stroke-dasharray:5 3; }
+    .ref  { stroke:#c98a34; stroke-width:1.6; fill:none; stroke-dasharray:3 3; }
+    .bind { stroke:#8a6ba8; stroke-width:1.8; fill:none; }
+    .lbl  { font-size:10px; fill:#6b7a8c; }
+  </style>
+  <rect class="bg" x="0" y="0" width="980" height="760"/>
+
+  <text class="ttl" x="24" y="30">오브젝트 관계도 — 무엇이 무엇을 만들고 가리키는가</text>
+  <text class="sub" x="24" y="48">파란 실선 = 소유 · 초록 점선 = 라벨 셀렉터 · 주황 점선 = 이름 참조 · 보라 실선 = 1:1 바인딩</text>
+
+  <!-- 워크로드 -->
+  <rect class="zone" x="24" y="66" width="466" height="392"/>
+  <text class="zt" x="42" y="88">워크로드 — 무엇을 몇 개 실행할 것인가</text>
+
+  <rect class="wk" x="46" y="102" width="190" height="52"/>
+  <text class="n" x="141" y="124" text-anchor="middle">Deployment</text>
+  <text class="d" x="141" y="141" text-anchor="middle">버전 관리 · 롤아웃 전략</text>
+
+  <rect class="wk" x="46" y="186" width="190" height="52"/>
+  <text class="n" x="141" y="208" text-anchor="middle">ReplicaSet</text>
+  <text class="d" x="141" y="225" text-anchor="middle">개수 유지</text>
+
+  <rect class="pod" x="46" y="270" width="88" height="52"/>
+  <text class="n" x="90" y="292" text-anchor="middle">Pod</text>
+  <text class="d" x="90" y="309" text-anchor="middle">app=web</text>
+  <rect class="pod" x="148" y="270" width="88" height="52"/>
+  <text class="n" x="192" y="292" text-anchor="middle">Pod</text>
+  <text class="d" x="192" y="309" text-anchor="middle">app=web</text>
+
+  <path class="own" d="M141 154 L141 186" marker-end="url(#ao)"/>
+  <text class="lbl" x="150" y="174">만든다</text>
+  <path class="own" d="M112 238 L90 270" marker-end="url(#ao)"/>
+  <path class="own" d="M170 238 L192 270" marker-end="url(#ao)"/>
+
+  <rect class="wk" x="266" y="102" width="202" height="46"/>
+  <text class="n" x="367" y="121" text-anchor="middle">StatefulSet</text>
+  <text class="d" x="367" y="137" text-anchor="middle">이름·스토리지·순서 보장</text>
+
+  <rect class="wk" x="266" y="158" width="202" height="46"/>
+  <text class="n" x="367" y="177" text-anchor="middle">DaemonSet</text>
+  <text class="d" x="367" y="193" text-anchor="middle">노드마다 하나씩</text>
+
+  <rect class="wk" x="266" y="214" width="202" height="46"/>
+  <text class="n" x="367" y="233" text-anchor="middle">Job / CronJob</text>
+  <text class="d" x="367" y="249" text-anchor="middle">완료를 목표로 하는 작업</text>
+
+  <rect class="plain" x="266" y="270" width="202" height="26"/>
+  <text class="lbl" x="367" y="287" text-anchor="middle">이들도 결국 Pod를 만든다</text>
+  <path class="own" d="M367 260 L367 270" marker-end="url(#ao)"/>
+  <path class="own" d="M266 283 L236 283" marker-end="url(#ao)"/>
+
+  <rect class="wk" x="46" y="342" width="190" height="46"/>
+  <text class="n" x="141" y="361" text-anchor="middle">PodDisruptionBudget</text>
+  <text class="d" x="141" y="377" text-anchor="middle">동시 중단 허용치</text>
+  <path class="sel" d="M100 342 L86 322" marker-end="url(#as)"/>
+
+  <rect class="wk" x="266" y="342" width="202" height="46"/>
+  <text class="n" x="367" y="361" text-anchor="middle">HorizontalPodAutoscaler</text>
+  <text class="d" x="367" y="377" text-anchor="middle">replicas 를 자동 조절</text>
+  <path class="ref" d="M367 342 L367 322 L252 322 L252 128 L236 128" marker-end="url(#ar)"/>
+
+  <rect class="plain" x="46" y="404" width="422" height="40"/>
+  <text class="n" x="257" y="424" text-anchor="middle">Namespace · ResourceQuota · LimitRange</text>
+  <text class="d" x="257" y="438" text-anchor="middle">위의 모든 것을 담는 경계, 그리고 총량·개별 한도</text>
+
+  <!-- 네트워크 -->
+  <rect class="zone" x="514" y="66" width="442" height="242"/>
+  <text class="zt" x="532" y="88">네트워크 — 어떻게 접근할 것인가</text>
+
+  <rect class="net" x="536" y="102" width="186" height="52"/>
+  <text class="n" x="629" y="124" text-anchor="middle">Service</text>
+  <text class="d" x="629" y="141" text-anchor="middle">고정 가상 IP · 로드밸런싱</text>
+
+  <rect class="net" x="748" y="102" width="186" height="52"/>
+  <text class="n" x="841" y="124" text-anchor="middle">EndpointSlice</text>
+  <text class="d" x="841" y="141" text-anchor="middle">Ready 인 Pod IP 목록</text>
+  <path class="own" d="M722 128 L748 128" marker-end="url(#ao)"/>
+
+  <rect class="net" x="536" y="172" width="186" height="52"/>
+  <text class="n" x="629" y="194" text-anchor="middle">Ingress / Gateway</text>
+  <text class="d" x="629" y="211" text-anchor="middle">L7 라우팅 · TLS 종료</text>
+  <path class="ref" d="M629 172 L629 154" marker-end="url(#ar)"/>
+
+  <rect class="net" x="748" y="172" width="186" height="52"/>
+  <text class="n" x="841" y="194" text-anchor="middle">NetworkPolicy</text>
+  <text class="d" x="841" y="211" text-anchor="middle">통신 허용 규칙</text>
+
+  <rect class="net" x="536" y="242" width="398" height="46"/>
+  <text class="n" x="735" y="261" text-anchor="middle">CoreDNS</text>
+  <text class="d" x="735" y="277" text-anchor="middle">Service 를 만들면 svc.namespace.svc.cluster.local 레코드가 자동 생성된다</text>
+
+  <path class="sel" d="M536 116 L500 116 L500 312 L236 312" marker-end="url(#as)"/>
+  <text class="lbl" x="380" y="328" text-anchor="middle">Service 는 이름이 아니라 라벨로 Pod를 찾는다</text>
+
+  <!-- 설정과 데이터 -->
+  <rect class="zone" x="514" y="326" width="442" height="336"/>
+  <text class="zt" x="532" y="348">설정과 데이터 — 무엇을 주입하고 어디에 저장할 것인가</text>
+
+  <rect class="cfg" x="536" y="362" width="186" height="52"/>
+  <text class="n" x="629" y="384" text-anchor="middle">ConfigMap</text>
+  <text class="d" x="629" y="401" text-anchor="middle">설정 값 · 설정 파일</text>
+
+  <rect class="cfg" x="748" y="362" width="186" height="52"/>
+  <text class="n" x="841" y="384" text-anchor="middle">Secret</text>
+  <text class="d" x="841" y="401" text-anchor="middle">민감 정보 (base64 ≠ 암호화)</text>
+
+  <rect class="cfg" x="536" y="430" width="398" height="46"/>
+  <text class="n" x="735" y="449" text-anchor="middle">ServiceAccount — Pod의 신원</text>
+  <text class="d" x="735" y="465" text-anchor="middle">RBAC(Role · RoleBinding)과 묶여 API 권한을 결정한다</text>
+
+  <rect class="sto" x="536" y="500" width="186" height="52"/>
+  <text class="n" x="629" y="522" text-anchor="middle">PersistentVolumeClaim</text>
+  <text class="d" x="629" y="539" text-anchor="middle">"이만큼 주세요" (개발자)</text>
+
+  <rect class="sto" x="748" y="500" width="186" height="52"/>
+  <text class="n" x="841" y="522" text-anchor="middle">PersistentVolume</text>
+  <text class="d" x="841" y="539" text-anchor="middle">실제 스토리지 조각</text>
+  <path class="bind" d="M722 526 L748 526" marker-end="url(#ab)"/>
+  <text class="lbl" x="735" y="494" text-anchor="middle">바인딩</text>
+
+  <rect class="sto" x="536" y="572" width="398" height="46"/>
+  <text class="n" x="735" y="591" text-anchor="middle">StorageClass — 스토리지의 "종류"</text>
+  <text class="d" x="735" y="607" text-anchor="middle">프로비저너가 PVC를 보고 PV를 자동 생성한다</text>
+  <path class="bind" d="M841 572 L841 552" marker-end="url(#ab)"/>
+
+  <text class="d" x="536" y="638">이 넷은 모두 Pod의 spec에서 이름으로 참조된다 —</text>
+  <text class="d" x="536" y="653">envFrom · volumes · serviceAccountName · persistentVolumeClaim.claimName</text>
+
+  <path class="ref" d="M536 388 L512 388 L512 258 L246 258 L246 296 L236 296" marker-end="url(#ar)"/>
+
+  <!-- 범례 -->
+  <rect class="zone" x="24" y="478" width="466" height="184"/>
+  <text class="zt" x="42" y="500">관계의 네 가지 종류</text>
+
+  <path class="own" d="M46 524 L100 524" marker-end="url(#ao)"/>
+  <text class="n"  x="112" y="528">소유 (ownerReferences)</text>
+  <text class="d"  x="46" y="546">부모를 삭제하면 자식도 함께 삭제된다. 가비지 컬렉터가 처리한다.</text>
+
+  <path class="sel" d="M46 578 L100 578" marker-end="url(#as)"/>
+  <text class="n"  x="112" y="582">라벨 셀렉터</text>
+  <text class="d"  x="46" y="600">이름이 아니라 라벨로 대상을 찾는다. 느슨하게 연결된다.</text>
+
+  <path class="ref" d="M46 626 L100 626" marker-end="url(#ar)"/>
+  <text class="n"  x="112" y="630">이름 참조</text>
+  <text class="d"  x="46" y="648">이름으로 직접 가리킨다. 대상이 없으면 Pod가 시작되지 않을 수 있다.</text>
+
+  <path class="bind" d="M300 524 L354 524" marker-end="url(#ab)"/>
+  <text class="n"  x="366" y="528">바인딩</text>
+  <text class="d"  x="300" y="546">1:1 배타적. PVC 하나에 PV 하나.</text>
+
+  <!-- 요약 -->
+  <rect class="zone" x="24" y="682" width="932" height="64"/>
+  <text class="zt" x="44" y="704">읽는 법</text>
+  <text class="d" x="44" y="724">세로 방향은 추상에서 구체로. Deployment(무엇을 원하는가) → ReplicaSet(몇 개인가) → Pod(실제 실행 단위).</text>
+  <text class="d" x="44" y="739">가로 방향은 관심사의 분리. 워크로드는 실행을, 네트워크는 접근을, 설정·스토리지는 상태를 담당한다.</text>
+
+  <defs>
+    <marker id="ao" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#3f6f9e"/></marker>
+    <marker id="as" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#5e8f5e"/></marker>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#c98a34"/></marker>
+    <marker id="ab" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#8a6ba8"/></marker>
+  </defs>
+</svg>

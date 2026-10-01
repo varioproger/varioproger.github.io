@@ -1,0 +1,12 @@
+sequenceDiagram
+  participant P as 앱의 AWS SDK
+  participant A as Pod Identity Agent
+  participant E as EKS Auth 서비스
+  participant W as AWS 서비스
+  Note over P,E: 사전에 cluster·namespace·ServiceAccount와 IAM role 연결
+  P->>A: 자격 증명 요청
+  A->>E: Pod 신원에 따른 임시 자격 증명 요청
+  E-->>A: 역할에 해당하는 임시 자격 증명
+  A-->>P: SDK에 제공
+  P->>W: 임시 자격 증명으로 서명한 API 요청
+

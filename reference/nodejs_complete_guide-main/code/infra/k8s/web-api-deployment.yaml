@@ -1,0 +1,171 @@
+# web-api Deployment (32.9·32.10절)
+#
+# web-api 는 외부 트래픽을 직접 받는 엣지 서비스라 recipe-api 보다 replica 를 넉넉히 둔다.
+# 설정의 의도는 recipe-api-deployment.yaml 의 주석과 같으므로, 여기서는 다른 점만 설명한다.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-api
+  namespace: ncg
+  labels:
+    app: web-api
+    tier: edge
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  minReadySeconds: 10
+  progressDeadlineSeconds: 300
+  selector:
+    matchLabels:
+      app: web-api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: web-api
+        tier: edge
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # web-api 는 SSE 연결을 오래 유지한다(12장). 클라이언트가 재연결할 시간을 주려면
+      # recipe-api 보다 유예 시간이 길어야 한다
+      terminationGracePeriodSeconds: 45
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: web-api
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+
+      containers:
+        - name: web-api
+          image: registry.example.com/ncg/web-api:1.0.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+
+          resources:
+            requests:
+              cpu: 250m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 768Mi     # 열린 SSE 연결마다 메모리를 쓰므로 recipe-api 보다 크게 잡는다
+
+          env:
+            # 메모리 limit 768Mi 의 약 75% → 576MB.
+            # limit 을 바꾸면 이 값도 반드시 함께 바꾼다(자세한 이유는 recipe-api 매니페스트 참고)
+            - name: NODE_OPTIONS
+              value: "--max-old-space-size=576"
+            - name: UV_THREADPOOL_SIZE
+              value: "4"
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: MEMORY_LIMIT_BYTES
+              valueFrom:
+                resourceFieldRef:
+                  containerName: web-api
+                  resource: limits.memory
+            - name: OTEL_SERVICE_NAME
+              value: "web-api"
+
+          envFrom:
+            - configMapRef:
+                name: ncg-config
+            - secretRef:
+                name: ncg-secrets
+
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
+            timeoutSeconds: 3
+
+          # liveness 는 자기 자신만 본다. recipe-api 가 죽었다고 web-api 를 재시작하면 안 된다
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # readiness 는 recipe-api 연결까지 확인한다.
+          # 다만 서킷 브레이커가 열린 상태를 곧바로 not-ready 로 만들면 전체가 동시에 빠지므로,
+          # 앱 쪽에서 "치명적 의존성"만 여기에 반영한다 (29.6절)
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 2
+
+          lifecycle:
+            preStop:
+              exec:
+                # 엔드포인트 제거가 전파될 때까지 SIGTERM 을 미룬다.
+                # 자세한 설명은 recipe-api-deployment.yaml 참고
+                command: ["/bin/sh", "-c", "sleep 5"]
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: diagnostics
+              mountPath: /diagnostics
+
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: diagnostics
+          emptyDir:
+            sizeLimit: 512Mi
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: web-api-pdb
+  namespace: ncg
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: web-api

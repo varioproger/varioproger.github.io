@@ -1,0 +1,5 @@
+flowchart TB
+D["객체 삭제 요청"] --> O["ownerReferences와 전파 정책<br/>종속 객체 처리에 영향"]
+D --> F{"finalizer 정리 작업이 남았는가?"}
+F -->|예| T["Terminating · 외부 정리 등 대기"] --> C["담당 controller가 정리 완료"] --> END["삭제 완료"]
+F -->|아니오| END

@@ -1,0 +1,7 @@
+flowchart TB
+  I["Ingress: host와 path 규칙"] -.-> L["AWS Load Balancer Controller"]
+  S["Service와 대상 정보"] -.-> L
+  L -->|AWS API로 listener와 target 구성| A["ALB"]
+  U["사용자"] -->|HTTPS| A
+  A -->|IP target으로 전달| P["Pod IP:8080"]
+

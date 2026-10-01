@@ -1,0 +1,8 @@
+flowchart TD
+    D[Deployment: 이미지 A, replicas 3] -->|Deployment controller| R[ReplicaSet: Pod 수 관리]
+    R -->|ReplicaSet controller| P[Pod 객체 3개]
+    P -->|Scheduler: 노드 선택| B[노드 배정]
+    B -->|kubelet이 관찰| K[kubelet]
+    K -->|CRI| C[containerd]
+    C -->|OCI runtime 사용| L[Linux 프로세스 실행]
+

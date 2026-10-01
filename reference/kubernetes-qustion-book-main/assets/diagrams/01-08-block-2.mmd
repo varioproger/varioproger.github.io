@@ -1,0 +1,8 @@
+flowchart TB
+    HCL["인프라 구성: HCL"] -->|"읽음"| TF["Terraform"]
+    TF -->|"AWS provider로 API 호출"| AWSAPI["AWS API"]
+    AWSAPI -->|"생성·변경"| INFRA["VPC · EKS · Node Group · IAM · ECR 저장소"]
+    CODE["앱 소스 + Dockerfile"] -->|"빌드 입력"| BUILD["Docker 빌드 도구 / BuildKit"]
+    BUILD -->|"생성"| IMAGE["이미지: 파일 레이어 + 실행 기본값"]
+    IMAGE -->|"push"| ECR["ECR에 저장된 이미지"]
+

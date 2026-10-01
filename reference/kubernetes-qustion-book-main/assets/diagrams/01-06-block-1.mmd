@@ -1,0 +1,41 @@
+flowchart TB
+    subgraph INFRA["A. 기반 준비 — 플랫폼 담당 / 환경 생성·변경 시"]
+        HCL["Terraform 구성: 네트워크·클러스터·권한"]
+        TF["Terraform: plan 확인 후 apply"]
+        BASE["AWS API: VPC · EKS · Node Group · IAM · ECR 생성"]
+        READY["클러스터 준비: 노드 · CNI · DNS · LB controller · 배포 권한"]
+        HCL --> TF --> BASE --> READY
+    end
+
+    subgraph RELEASE["B. 앱 배포 — 개발팀 / 앱 버전 변경 시"]
+        DEV["1. 앱 개발: 코드 · 테스트 · Dockerfile · 배포 설정"]
+        GIT["2. Git 원격 저장소: commit / push / 검토·merge"]
+        CI["3. CI runner: 코드 checkout · 테스트"]
+        BUILD["4. Docker 빌드: 실행할 이미지를 만듦"]
+        ECR["5. ECR: 이미지 push · digest 확보"]
+        CD["6. CD: 배포할 digest와 환경 설정 선택"]
+        MANIFEST["7. Deployment · Service · Ingress 설정을 EKS API에 적용"]
+        DEV --> GIT
+        GIT -->|"설정된 workflow 실행 조건"| CI
+        CI -->|"테스트 성공"| BUILD
+        BUILD --> ECR --> CD --> MANIFEST
+    end
+
+    subgraph EKS["C. 준비된 EKS에서 동작하는 Kubernetes"]
+        API["8. API Server: 권한·설정 검증 후 객체 반영"]
+        CTRL["9. Controllers: ReplicaSet · Pod 객체 생성·조정"]
+        SCH["10. Scheduler: 새 Pod의 실행 노드 결정"]
+        NODE["11. 노드의 kubelet / containerd: 이미지 준비·실행"]
+        POD["12. 앱 Pod: readiness 확인 · 실행 상태 보고"]
+        API --> CTRL --> SCH --> NODE --> POD
+    end
+
+    READY -.->|"배포 전에 준비되어 있어야 함"| API
+    MANIFEST -->|"kubectl apply 등: 관리 요청"| API
+    ECR -->|"노드 runtime이 필요한 이미지 pull"| NODE
+    API -.->|"Ingress·대상 정보를 LB controller가 관찰"| LBC["AWS Load Balancer Controller"]
+    LBC -.->|"AWS API로 LB 설정·Pod target 갱신"| ALB["ALB: 사용자용 입구"]
+    USER["13. 사용자: 앱 도메인으로 접속"] ==>|"HTTPS 요청"| ALB
+    ALB ==>|"건강한 Pod IP로 전달"| POD
+    POD -->|"업무 데이터 읽기·쓰기"| DB["DB 등 외부 의존 서비스"]
+

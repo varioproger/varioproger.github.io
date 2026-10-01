@@ -1,0 +1,8 @@
+sequenceDiagram
+participant A as API Server
+participant W as Webhook 서버
+Note over A: rules와 selector에 맞는 admission 요청
+A->>W: 검토 요청
+W-->>A: 값 변경 patch 등 응답
+Note over A: 응답 반영
+Note over A,W: 서버 무응답 + failurePolicy Fail이면 새 생성 요청 등이 막힐 수 있음
