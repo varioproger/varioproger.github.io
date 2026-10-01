@@ -5,7 +5,7 @@ nav_order: 0
 permalink: /
 ---
 
-# Varioproger Docs
+# varioproger Docs
 
 개발 학습용 가이드 문서 모음입니다. 왼쪽 메뉴에서 **카테고리 → 중분류 → 페이지** 순으로 탐색하세요.
 
