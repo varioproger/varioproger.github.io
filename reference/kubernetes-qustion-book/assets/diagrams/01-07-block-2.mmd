@@ -1,0 +1,9 @@
+flowchart TB
+subgraph SETUP["미리 준비할 정책"]
+ T["Terraform · Node Group / IAM / min 2 · max 5"]
+ INSTALL["설치 도구 · CA 설치 / 그룹 발견 / AWS 접근"]
+ APP["배포 도구 · Deployment / 선택적 HPA"]
+end
+subgraph LIVE["운영 중 자동 조정"]
+ H["HPA 또는 배포자 · replicas 증가"] --> C["controller · Pod 생성"] --> P["기존 Node에 배치 불가능"] --> CA["CA · 적합한 그룹 목표 수 조정"] --> EC2["AWS · EC2 생성"] --> N["노드 등록·준비"] --> S["scheduler · Pod 배치"]
+end

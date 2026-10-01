@@ -1,0 +1,9 @@
+flowchart TB
+subgraph AZA["AZ A"]
+ D["EBS 볼륨"] --- P["같은 AZ의 노드에서 사용할 Pod"]
+end
+subgraph AZB["AZ B"]
+ N["다른 AZ의 Node · AZ A EBS를 그대로 연결할 수 없음"]
+end
+W["WaitForFirstConsumer"] --> C["소비 Pod 배치 요구 확인"] --> L["저장소 위치·바인딩 결정"]
+WAIT["소비 Pod가 없으면 PVC Pending이 정상 대기일 수 있음"] -.-> W

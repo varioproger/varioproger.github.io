@@ -1,0 +1,24 @@
+flowchart TB
+  ADMIN["플랫폼 운영자 / Terraform"] -->|AWS EKS API| E["클러스터와 노드 그룹 구성"]
+  CD["배포 도구 / kubectl"] -->|Kubernetes API| API["API Server"]
+  subgraph AWSCP["AWS가 운영하는 EKS Control Plane"]
+    API
+    CTRL["controllers와 scheduler"]
+    ETCD["etcd"]
+    API --> ETCD
+    CTRL -.-> API
+  end
+  subgraph VPC["고객 VPC: 일반 EC2 기반 예시"]
+    ENI["제어부 통신용 ENI 등"]
+    subgraph NG["Managed Node Group: EC2 집합"]
+      NODE["EC2 노드: kubelet와 containerd"]
+      POD["앱 Pod와 시스템 Pod"]
+      NODE --> POD
+    end
+    ALB["ALB"] -->|앱 요청| POD
+  end
+  API ---|노드와의 통신| ENI
+  ENI --- NODE
+  E -.-> AWSCP
+  E -.-> NG
+

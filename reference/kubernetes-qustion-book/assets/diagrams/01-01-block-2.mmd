@@ -1,0 +1,11 @@
+flowchart TD
+    TF[Terraform 구성과 state] -->|AWS provider로 API 호출| AWS[AWS 자원: VPC · EKS · Node Group · ECR · IAM]
+    CODE[소스와 Dockerfile] --> BUILD[Docker 빌드]
+    BUILD -->|이미지 push| ECR[ECR 이미지 저장소]
+    YAML[Deployment · Service · Ingress 설정] -->|kubectl 또는 배포 도구| API[EKS의 Kubernetes API]
+    API --> CTRL[Controllers와 Scheduler]
+    CTRL -->|API에 생성·배치 상태 기록| API
+    API -->|할당된 Pod를 kubelet이 관찰| NODE[노드의 kubelet과 containerd]
+    ECR -->|이미지 pull| NODE
+    NODE --> POD[실행 중인 Pod]
+

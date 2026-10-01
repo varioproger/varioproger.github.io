@@ -1,0 +1,7 @@
+flowchart TB
+subgraph MGMT["관리 요청 · orders 앱을 3개 실행하도록 설정"]
+ O["운영자 / 배포 도구"] --> URL["https://&lt;cluster-api-endpoint&gt;/apis/apps/v1/..."] --> K["Kubernetes API Server"]
+end
+subgraph DATA["업무 요청 · 내 주문을 접수"]
+ U["일반 사용자 / 브라우저"] --> APPURL["https://orders.example.com/orders"] --> LB["ALB"] --> APP["주문 API 프로세스"]
+end

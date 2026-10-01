@@ -1,0 +1,11 @@
+flowchart TB
+    subgraph MGMT["관리 요청: 실행 상태를 바꾸기"]
+        OP["운영자 / 배포 도구"] -->|"앱을 3개 실행하도록 설정"| API["Kubernetes API endpoint"]
+        API -->|"API Server가 객체 반영"| SPEC["Deployment 등 관리 객체"]
+    end
+    subgraph DATA["업무 요청: 앱 기능을 사용하기"]
+        USER["사용자 / 브라우저"] -->|"orders.example.com으로 주문 요청"| LB["ALB"]
+        LB -->|"HTTP 전달: IP target"| APP["Pod 안의 주문 앱"]
+        APP -->|"주문 저장"| DB["업무 DB"]
+    end
+

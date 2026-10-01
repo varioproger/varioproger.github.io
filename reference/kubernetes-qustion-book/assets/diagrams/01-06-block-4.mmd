@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant CD as CD runner
+    participant AWS as AWS 인증·클러스터 정보
+    participant API as EKS Kubernetes API
+    participant K8S as Controllers와 노드
+    CD->>AWS: 허용된 IAM identity로 클러스터 정보·인증 준비
+    Note over CD: kubeconfig의 대상 확인 / 배포할 이미지 참조 반영
+    CD->>API: Deployment · Service · Ingress 적용
+    API-->>CD: 객체 반영 결과
+    API->>K8S: 구성 요소들이 원하는 상태를 관찰
+    K8S-->>API: 실행·준비 상태 보고
+    CD->>API: rollout과 준비 상태 확인
+

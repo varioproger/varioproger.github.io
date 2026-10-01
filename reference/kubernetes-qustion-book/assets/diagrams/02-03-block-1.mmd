@@ -1,0 +1,8 @@
+flowchart TB
+  D["Deployment orders: 배포 전략과 template"] -->|소유| R1["ReplicaSet: 이전 template v1"]
+  D -->|소유| R2["ReplicaSet: 새 template v2"]
+  R1 -->|소유| P1["이전 Pod: 점차 감소"]
+  R2 -->|소유| P2["새 Pod: 점차 증가"]
+  S["Service: app=orders 선택"] -.-> P1
+  S -.-> P2
+

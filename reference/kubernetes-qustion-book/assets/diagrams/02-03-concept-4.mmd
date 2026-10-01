@@ -1,0 +1,4 @@
+flowchart TB
+C["CronJob · 일정"] --> J["Job 생성"] --> P["작업 Pod 실행"]
+F["concurrencyPolicy: Forbid"] -.-> L["이 CronJob의 Job끼리 겹침 제한"]
+N["지연 / 재시도 / 불확실한 완료"] --> DUP["업무 중복 처리 가능성 고려<br/>전 세계 exactly-once 보장 아님"]

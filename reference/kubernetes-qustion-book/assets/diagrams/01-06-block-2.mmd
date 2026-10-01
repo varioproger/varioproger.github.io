@@ -1,0 +1,10 @@
+flowchart TB
+ROOT["orders 프로젝트"] --> SRC["src/ · 앱 소스"]
+ROOT --> TEST["tests/ · 앱 테스트"]
+ROOT --> DOCKER["Dockerfile · 빌드 방법<br/>.dockerignore · 빌드 제외 파일"]
+ROOT --> CI[".github/workflows/ · CI/CD 순서·조건 예"]
+ROOT --> DEP["deploy/"]
+DEP --> D["deployment.yaml · 이미지 / 수량 / 자원 / probe / 설정"]
+DEP --> S["service.yaml · Pod 선택 / 포트 연결"]
+DEP --> I["ingress.yaml · 도메인 / 경로 / Service 연결"]
+ROOT --> TF["infra/ · Terraform 구성<br/>별도 저장소로 분리 가능"]

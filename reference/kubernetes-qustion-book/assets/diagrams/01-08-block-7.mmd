@@ -1,0 +1,7 @@
+flowchart TB
+    ING["Ingress: HTTP 라우팅 의도"] -.->|"관찰"| CT["AWS Load Balancer Controller"]
+    INFO["Service와 Pod 대상 정보"] -.->|"관찰"| CT
+    CT -.->|"AWS API로 target 등록·해제"| LB["ALB / target group"]
+    USER["사용자"] -->|"앱 도메인으로 요청"| LB
+    LB -->|"현재 사용 가능한 target으로 전달"| POD["Pod IP:8080 / 주문 앱"]
+

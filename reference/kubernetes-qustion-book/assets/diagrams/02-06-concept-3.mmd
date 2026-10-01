@@ -1,0 +1,2 @@
+flowchart TB
+N0["앱 · 실제 listen 주소와 포트<br/>127.0.0.1만 듣는지 확인"] --> N1["Pod Ready / Service selector<br/>EndpointSlice 대상과 포트"] --> N2["호출 Pod의 DNS 해석<br/>DNS 서버 연결 허용"] --> N3["Service IP / Pod IP로 비교<br/>실패 경계 찾기"] --> N4["외부 LB listener / health / target<br/>Security Group 확인"]

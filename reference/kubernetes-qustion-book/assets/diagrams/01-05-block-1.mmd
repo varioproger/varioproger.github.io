@@ -1,0 +1,5 @@
+flowchart TB
+V["VPC"] --> S["subnet"] --> NET["EKS 연결 네트워크"]
+I["IAM role"] --> PERM["EKS / Node Group / controller 권한"]
+E["EKS + subnet + IAM"] --> NG["Node Group"] --> N["실제 EC2 노드"]
+R["ECR repository"] --> ADDR["이미지 저장 주소"]

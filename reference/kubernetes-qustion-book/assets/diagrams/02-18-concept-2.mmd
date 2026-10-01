@@ -1,0 +1,6 @@
+flowchart TB
+P["새 Pod Ready"] --> L{"ALB target unhealthy?"}
+L -->|예| NET["ALB → Pod 경계<br/>health check path / port / SG"]
+L -->|아니오 · 모든 health 정상| B{"특정 업무만 실패?"}
+B -->|예| APP["앱 trace / DB / 외부 결제 API"]
+N["Kubernetes 정상과 업무 정상은 다른 증거"] -.-> APP

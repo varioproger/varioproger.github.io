@@ -1,0 +1,6 @@
+flowchart LR
+  S["Service selector"] -.-> C["EndpointSlice controller"]
+  P["Pod 주소와 상태"] -.-> C
+  C --> E["EndpointSlice"]
+  E -.-> K["kube-proxy 등 전달 구현"]
+

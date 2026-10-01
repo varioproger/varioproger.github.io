@@ -1,0 +1,14 @@
+flowchart TB
+    I["같은 호환 이미지 산출물"]
+    subgraph LOCAL["개발 머신: Docker로 실행"]
+        DCLI["Docker CLI"] -->|"Docker API"| DD["dockerd"]
+        DD -->|"실행 관리 요청"| DC["containerd"]
+        DC -->|"shim / runc 사용"| DA["앱 프로세스"]
+    end
+    subgraph EKSNODE["EKS 노드: Kubernetes로 실행"]
+        K["kubelet"] -->|"CRI"| KC["containerd"]
+        KC -->|"shim / runc 사용"| KA["앱 프로세스"]
+    end
+    I -->|"이미지 내용 사용"| DC
+    I -->|"이미지 내용 사용"| KC
+

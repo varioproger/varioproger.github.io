@@ -1,0 +1,46 @@
+<svg viewBox="0 0 1600 1260" xmlns="http://www.w3.org/2000/svg" font-family="'Segoe UI', Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="1600" height="1260" fill="#ffffff"/>
+
+  <text x="800" y="80" text-anchor="middle" font-size="40" font-weight="700" fill="#4b21a8">NestJS 디자인 패턴 지도 — 강제성에 따른 3단</text>
+
+  <!-- Box 1: 강제됨 -->
+  <rect x="175" y="150" width="1270" height="260" rx="14" fill="#dbeafe" stroke="#1d4ed8" stroke-width="3"/>
+  <text x="810" y="205" text-anchor="middle" font-size="27" font-weight="700" fill="#111827">1. 강제됨 — 이걸 안 하면 애초에 Nest 앱이 아니다</text>
+  <text x="810" y="255" text-anchor="middle" font-size="22" fill="#111827">의존성 주입(DI) · 생성자 주입   ·   모듈 패턴(캡슐화: providers/exports)</text>
+  <text x="810" y="295" text-anchor="middle" font-size="22" fill="#111827">데코레이터 + reflect-metadata   ·   싱글턴(기본 프로바이더 스코프)</text>
+  <text x="810" y="345" text-anchor="middle" font-size="19" fill="#374151" font-style="italic">→ 1장·2장·3장, 4장에서 다룬 내용</text>
+  <text x="810" y="380" text-anchor="middle" font-size="19" fill="#374151" font-style="italic">→ 관련 근거 다이어그램: 01_layers · 03_module_graph · 04_di_resolution</text>
+
+  <!-- Arrow 1 -->
+  <line x1="810" y1="410" x2="810" y2="445" stroke="#6b7280" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- Box 2: 구조로 제공 -->
+  <rect x="175" y="450" width="1270" height="300" rx="14" fill="#fef3c7" stroke="#b45309" stroke-width="3"/>
+  <text x="810" y="505" text-anchor="middle" font-size="27" font-weight="700" fill="#111827">2. 구조로 제공됨 — 인터페이스를 구현해야 파이프라인에 꽂힌다</text>
+  <text x="810" y="555" text-anchor="middle" font-size="22" fill="#111827">전략 패턴 — Guard / Pipe / Interceptor / Filter</text>
+  <text x="810" y="590" text-anchor="middle" font-size="22" fill="#111827">책임 연쇄 패턴 — 고정 순서의 요청 파이프라인</text>
+  <text x="810" y="625" text-anchor="middle" font-size="22" fill="#111827">팩토리 패턴 — useFactory, forRoot()/forRootAsync() 동적 모듈</text>
+  <text x="810" y="660" text-anchor="middle" font-size="22" fill="#111827">어댑터 패턴 — AbstractHttpAdapter(Express/Fastify)</text>
+  <text x="810" y="710" text-anchor="middle" font-size="19" fill="#374151" font-style="italic">→ 7장·8장·9장, 5장에서 다룬 내용   ·   근거: 05_pipeline</text>
+
+  <!-- Arrow 2 -->
+  <line x1="810" y1="750" x2="810" y2="785" stroke="#6b7280" stroke-width="3" marker-end="url(#arrow)"/>
+
+  <!-- Box 3: 컨벤션 -->
+  <rect x="175" y="790" width="1270" height="300" rx="14" fill="#ede9fe" stroke="#6d28d9" stroke-width="3"/>
+  <text x="810" y="845" text-anchor="middle" font-size="27" font-weight="700" fill="#111827">3. 컨벤션 &amp; 선택 — 프레임워크는 강제하지 않지만 실무 표준</text>
+  <text x="810" y="895" text-anchor="middle" font-size="22" fill="#111827">3계층 분리 — Controller → Service → Repository</text>
+  <text x="810" y="930" text-anchor="middle" font-size="22" fill="#111827">DTO + class-validator 검증</text>
+  <text x="810" y="965" text-anchor="middle" font-size="22" fill="#111827">관찰자 패턴 — EventEmitter, RxJS Observable</text>
+  <text x="810" y="1000" text-anchor="middle" font-size="22" fill="#111827">CQRS — 명령/조회 분리(대규모 앱 전용)</text>
+  <text x="810" y="1050" text-anchor="middle" font-size="19" fill="#374151" font-style="italic">→ 지키지 않아도 부팅은 되지만, 지키지 않으면 Nest를 쓰는 이점이 사라진다</text>
+
+  <text x="800" y="1140" text-anchor="middle" font-size="19" fill="#4b5563">위로 갈수록 "구현하지 않으면 부팅조차 안 됨", 아래로 갈수록 "안 지켜도 동작은 하지만 대가가 커짐"</text>
+  <text x="800" y="1175" text-anchor="middle" font-size="19" fill="#4b5563">제외한 것: GoF의 나머지 패턴(옵저버 세부, 데코레이터 GoF 원형 등) — Nest 아키텍처와 직결되지 않는 것은 다루지 않는다</text>
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="5" refY="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 Z" fill="#6b7280"/>
+    </marker>
+  </defs>
+</svg>

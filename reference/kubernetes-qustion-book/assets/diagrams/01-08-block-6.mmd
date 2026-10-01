@@ -1,0 +1,16 @@
+flowchart TB
+    subgraph BEFORE["교체 전"]
+        CLIENT1["호출 앱"] -->|"같은 입구로 접속"| S1["Service: 172.20.10.50:80"]
+        S1 -->|"현재 전달 규칙"| A["Pod A: 10.0.1.21:8080"]
+    end
+    subgraph CHANGE["중간: 주소와 규칙 갱신"]
+        EVENT["A 삭제 / 같은 label의 B 준비"] -->|"관찰"| EC["EndpointSlice controller"]
+        EC -->|"주소·포트·준비 상태 갱신"| ES["EndpointSlice: 대상 목록"]
+        ES -->|"관찰"| KP["kube-proxy 또는 대체 구현"]
+        KP -->|"반영"| RULE["새 전달 규칙"]
+    end
+    subgraph AFTER["교체 후"]
+        CLIENT2["같은 호출 앱"] -->|"같은 입구로 접속"| S2["Service: 172.20.10.50:80"]
+        S2 -->|"갱신된 전달 규칙"| B["Pod B: 10.0.1.45:8080"]
+    end
+

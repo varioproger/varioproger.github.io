@@ -1,0 +1,11 @@
+flowchart TB
+subgraph INFRA["환경 생성·변경 때 · 기반 생성"]
+ T["Terraform"] --> API["AWS API"] --> B["VPC / EKS / 노드"]
+end
+subgraph DEPLOY["버전 변경·지속 유지 · 앱 배포와 제어"]
+ BUILD["빌드"] --> ECR["ECR"]
+ Y["배포 설정"] --> K["Kubernetes API"] --> N["노드"]
+end
+subgraph DATA["사용자가 서비스를 쓸 때 · 실제 요청 처리"]
+ U["사용자"] --> A["ALB"] --> P["Pod의 앱"] --> DB["DB"]
+end

@@ -1,0 +1,12 @@
+flowchart TB
+subgraph BEFORE["변경 전 · Node 2개 / Pod 3개"]
+ A["Node A · Pod 1 / Pod 2 / 빈 자리"]
+ B["Node B · Pod 3 / 빈 자리 / 빈 자리"]
+end
+R["replicas 3 → 5"] --> C["controller · Pod 객체 2개 생성"] --> S["scheduler · 기존 노드 선택"] --> K["kubelet / runtime · 같은 이미지 실행"]
+subgraph AFTER["변경 후 · EC2 2대 / Node 2개 그대로"]
+ A2["Node A · Pod 1 / Pod 2 / Pod 4"]
+ B2["Node B · Pod 3 / Pod 5 / 빈 자리"]
+end
+K --> A2
+K --> B2

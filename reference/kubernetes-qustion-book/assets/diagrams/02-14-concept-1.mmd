@@ -1,0 +1,2 @@
+flowchart TB
+N0["메트릭 제공 체계"] --> N1["HPA controller · 지표 읽기"] --> N2["대상 scale subresource · 원하는 복제본 기록"] --> N3["Deployment / ReplicaSet controller · Pod 수 조정"] --> N4["노드 실행은 별도 단계<br/>HPA가 직접 노드를 만들지 않음"]

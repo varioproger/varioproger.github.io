@@ -1,0 +1,11 @@
+flowchart TD
+  M["부하와 메트릭 증가"] --> H["HPA: replicas 증가"]
+  H --> D["Deployment와 ReplicaSet: Pod 생성"]
+  D --> S{"기존 노드에 배치 가능한가?"}
+  S -->|예| R["실행 준비 후 Ready"]
+  S -->|아니오| P["Pending Pod"]
+  P --> A["설정된 Node autoscaler가 관찰"]
+  A --> C["AWS 용량·정책에 맞는 노드 생성"]
+  C --> N["노드 등록과 네트워크 준비"]
+  N --> R
+
