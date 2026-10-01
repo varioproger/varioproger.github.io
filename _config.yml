@@ -1,8 +1,31 @@
-title: Just the Docs Template
-description: A starter template for a Jeykll site using the Just the Docs theme!
+title: Varioproger Docs
+description: C#, Kubernetes, NestJS 완전 가이드 모음
 theme: just-the-docs
+lang: ko
 
-url: https://just-the-docs.github.io
+url: https://varioproger.github.io
 
-aux_links:
-  Template Repository: https://github.com/just-the-docs/just-the-docs-template
+plugins:
+  - jekyll-relative-links
+
+relative_links:
+  enabled: true
+  collections: false
+
+exclude:
+  - README.md
+  - Gemfile
+  - Gemfile.lock
+
+# 문서 본문의 {{ }} / {% %} 가 Liquid 로 해석되지 않도록 한다
+defaults:
+  - scope:
+      path: "doc"
+    values:
+      render_with_liquid: false
+
+# 큰 문서 목록: 목차를 접어서 보여준다
+nav_sort: case_sensitive
+back_to_top: true
+back_to_top_text: "맨 위로"
+search_enabled: true

@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 620" width="980" height="620" font-family="'Noto Sans KR','Malgun Gothic','Noto Sans CJK KR','Apple SD Gothic Neo','Nanum Gothic',sans-serif">
+  <style>
+    .bg   { fill:#ffffff; }
+    .ttl  { font-size:15px; font-weight:700; fill:#243447; }
+    .sub  { font-size:11px; fill:#5c6b7a; }
+    .zone { fill:#f7f9fc; stroke:#c8d3e0; stroke-width:1.2; rx:9; }
+    .zt   { font-size:12px; font-weight:700; fill:#42536a; }
+    .st   { fill:#ffffff; stroke:#5b7fa6; stroke-width:1.8; rx:20; }
+    .ok   { fill:#eef5ee; stroke:#5e8f5e; stroke-width:1.8; rx:20; }
+    .bad  { fill:#fbeeee; stroke:#a05252; stroke-width:1.8; rx:20; }
+    .warn { fill:#fff7ed; stroke:#c98a34; stroke-width:1.8; rx:20; }
+    .n    { font-size:12.5px; font-weight:700; fill:#1f2d3d; }
+    .d    { font-size:10px; fill:#5c6b7a; }
+    .ar   { stroke:#7f8fa4; stroke-width:1.8; fill:none; }
+    .arb  { stroke:#a05252; stroke-width:1.8; fill:none; }
+    .lbl  { font-size:10px; fill:#6b7a8c; }
+    .lblb { font-size:10px; fill:#a05252; }
+    .box  { fill:#ffffff; stroke:#5b7fa6; stroke-width:1.4; rx:6; }
+    .mono { font-family:monospace; font-size:10.5px; fill:#42536a; }
+  </style>
+  <rect class="bg" x="0" y="0" width="980" height="620"/>
+
+  <text class="ttl" x="24" y="30">Pod 생명주기 — 상태 전이와 종료 흐름</text>
+  <text class="sub" x="24" y="48">phase 는 거칠고 conditions 가 정확하다. 트래픽을 결정하는 것은 Ready 조건이다.</text>
+
+  <!-- 상태 전이 -->
+  <rect class="zone" x="24" y="66" width="932" height="230"/>
+  <text class="zt" x="44" y="88">상태 전이</text>
+
+  <rect class="st" x="48" y="108" width="140" height="60"/>
+  <text class="n" x="118" y="132" text-anchor="middle">Pending</text>
+  <text class="d" x="118" y="150" text-anchor="middle">스케줄 대기 · 이미지 pull</text>
+
+  <rect class="st" x="238" y="108" width="150" height="60"/>
+  <text class="n" x="313" y="132" text-anchor="middle">Running 0/1</text>
+  <text class="d" x="313" y="150" text-anchor="middle">실행 중 · 트래픽 안 받음</text>
+
+  <rect class="ok" x="438" y="108" width="150" height="60"/>
+  <text class="n" x="513" y="132" text-anchor="middle">Running 1/1</text>
+  <text class="d" x="513" y="150" text-anchor="middle">Ready=True · 트래픽 수신</text>
+
+  <rect class="warn" x="638" y="108" width="140" height="60"/>
+  <text class="n" x="708" y="132" text-anchor="middle">Terminating</text>
+  <text class="d" x="708" y="150" text-anchor="middle">삭제 진행 중</text>
+
+  <rect class="ok" x="828" y="88" width="110" height="52"/>
+  <text class="n" x="883" y="110" text-anchor="middle">Succeeded</text>
+  <text class="d" x="883" y="127" text-anchor="middle">Job 완료</text>
+
+  <rect class="bad" x="828" y="152" width="110" height="52"/>
+  <text class="n" x="883" y="174" text-anchor="middle">Failed</text>
+  <text class="d" x="883" y="191" text-anchor="middle">축출 · 실패</text>
+
+  <rect class="bad" x="238" y="206" width="150" height="60"/>
+  <text class="n" x="313" y="230" text-anchor="middle">CrashLoopBackOff</text>
+  <text class="d" x="313" y="248" text-anchor="middle">반복 종료 · 지수 백오프</text>
+
+  <rect class="bad" x="48" y="206" width="140" height="60"/>
+  <text class="n" x="118" y="230" text-anchor="middle">ImagePullBackOff</text>
+  <text class="d" x="118" y="248" text-anchor="middle">이미지를 못 가져옴</text>
+
+  <rect class="bad" x="438" y="206" width="150" height="60"/>
+  <text class="n" x="513" y="230" text-anchor="middle">OOMKilled (137)</text>
+  <text class="d" x="513" y="248" text-anchor="middle">메모리 한도 초과</text>
+
+  <path class="ar" d="M188 138 L238 138" marker-end="url(#a6)"/>
+  <path class="ar" d="M388 138 L438 138" marker-end="url(#a6)"/>
+  <text class="lbl" x="413" y="102" text-anchor="middle">readiness 통과</text>
+  <path class="ar" d="M588 138 L638 138" marker-end="url(#a6)"/>
+  <text class="lbl" x="613" y="130" text-anchor="middle">delete</text>
+  <path class="ar" d="M778 126 L828 114" marker-end="url(#a6)"/>
+  <path class="ar" d="M778 150 L828 172" marker-end="url(#a6)"/>
+
+  <path class="arb" d="M118 168 L118 206" marker-end="url(#a6b)"/>
+  <path class="arb" d="M313 168 L313 206" marker-end="url(#a6b)"/>
+  <path class="arb" d="M513 168 L513 206" marker-end="url(#a6b)"/>
+  <path class="arb" d="M438 236 L388 236" marker-end="url(#a6b)"/>
+  <text class="lblb" x="530" y="190">limits 초과</text>
+
+  <path class="ar" d="M270 206 L250 180 L280 168" marker-end="url(#a6)"/>
+  <text class="lbl" x="200" y="196">재시작</text>
+
+  <!-- conditions -->
+  <rect class="zone" x="24" y="316" width="450" height="170"/>
+  <text class="zt" x="44" y="338">conditions — 순서대로 True 가 된다</text>
+  <rect class="box" x="44" y="352" width="410" height="30"/>
+  <text class="mono" x="56" y="372">PodScheduled &#160;&#160;&#160;&#160;노드가 정해졌다</text>
+  <rect class="box" x="44" y="388" width="410" height="30"/>
+  <text class="mono" x="56" y="408">Initialized &#160;&#160;&#160;&#160;&#160;&#160;init 컨테이너가 모두 완료됐다</text>
+  <rect class="box" x="44" y="424" width="410" height="30"/>
+  <text class="mono" x="56" y="444">ContainersReady &#160;&#160;모든 컨테이너의 readiness 통과</text>
+  <rect class="ok" x="44" y="460" width="410" height="30" rx="6"/>
+  <text class="mono" x="56" y="480">Ready &#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;★ 이것이 트래픽 수신 여부를 결정한다</text>
+
+  <!-- 종료 흐름 -->
+  <rect class="zone" x="498" y="316" width="458" height="170"/>
+  <text class="zt" x="518" y="338">종료 — 두 가지가 동시에 일어난다</text>
+  <rect class="box" x="518" y="352" width="418" height="26"/>
+  <text class="mono" x="530" y="370">① deletionTimestamp 설정 → Terminating</text>
+
+  <rect class="warn" x="518" y="386" width="200" height="46" rx="6"/>
+  <text class="mono" x="530" y="404">② kubelet:</text>
+  <text class="mono" x="530" y="422">&#160;&#160;&#160;preStop 실행</text>
+  <rect class="warn" x="736" y="386" width="200" height="46" rx="6"/>
+  <text class="mono" x="748" y="404">③ 엔드포인트에서 제거</text>
+  <text class="mono" x="748" y="422">&#160;&#160;&#160;kube-proxy 규칙 갱신</text>
+
+  <rect class="box" x="518" y="440" width="418" height="26"/>
+  <text class="mono" x="530" y="458">④ SIGTERM → grace period 대기 → ⑤ SIGKILL</text>
+  <text class="lblb" x="518" y="480">②와 ③이 병렬이라 배포 중 502 가 난다. preStop: sleep 으로 시간을 번다.</text>
+
+  <!-- 프로브 -->
+  <rect class="zone" x="24" y="506" width="932" height="94"/>
+  <text class="zt" x="44" y="528">세 프로브의 역할</text>
+  <rect class="box" x="44" y="540" width="290" height="48"/>
+  <text class="n" x="189" y="560" text-anchor="middle">startupProbe</text>
+  <text class="d" x="189" y="577" text-anchor="middle">시작을 보호. 통과할 때까지 다른 프로브는 쉰다</text>
+  <rect class="box" x="346" y="540" width="290" height="48"/>
+  <text class="n" x="491" y="560" text-anchor="middle">livenessProbe</text>
+  <text class="d" x="491" y="577" text-anchor="middle">실패 시 재시작. 외부 의존성을 넣으면 안 된다</text>
+  <rect class="ok" x="648" y="540" width="290" height="48" rx="6"/>
+  <text class="n" x="793" y="560" text-anchor="middle">readinessProbe</text>
+  <text class="d" x="793" y="577" text-anchor="middle">실패 시 트래픽만 차단. 재시작하지 않는다</text>
+
+  <defs>
+    <marker id="a6" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#7f8fa4"/></marker>
+    <marker id="a6b" markerWidth="9" markerHeight="9" refX="7" refY="3.2" orient="auto">
+      <path d="M0,0 L7,3.2 L0,6.4 z" fill="#a05252"/></marker>
+  </defs>
+</svg>
