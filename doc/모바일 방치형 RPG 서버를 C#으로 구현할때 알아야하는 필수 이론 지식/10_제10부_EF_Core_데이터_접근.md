@@ -1,9 +1,3 @@
----
-title: "제10부. 데이터 접근 (EF Core)"
-parent: "C# 방치형 RPG 서버 필수 이론"
-nav_order: 10
----
-
 # 제10부. 데이터 접근 (EF Core)
 
 **학습 목표**
@@ -20,17 +14,17 @@ nav_order: 10
 
 ### 1. ORM과 EF Core 개념, DbContext
 
-> 📖 출처: B5 1장 "An overview of EF Core" (b5.txt L1516-1573), B5 2장 "Creating the application's DbContext" (b5.txt L2978-3090), B12 5장 "Why use ORM?" / "Configuring the DbContext class" (b12.txt L8688-8813)
+> 📖 출처: Entity Framework Core in Action 1장 "An overview of EF Core" (텍스트 L1516-1573), Entity Framework Core in Action 2장 "Creating the application's DbContext" (텍스트 L2978-3090), Web API Development with ASP.NET Core 8 5장 "Why use ORM?" / "Configuring the DbContext class" (텍스트 L8688-8813)
 
 **한 줄 요약**: EF Core는 "테이블은 클래스, 행은 객체"로 바꿔 주는 번역기이고, 그 창구가 `DbContext`다.
 
 **핵심 설명**
-- ORM(Object-Relational Mapper)은 DB 테이블·열을 C# 클래스·속성에 연결해 준다. 테이블 = 클래스, 열 = 속성, 행 = 객체, SQL의 `WHERE` = LINQ의 `Where`에 대응한다(B5 표 1.1).
-- SQL 문자열을 직접 쓰면 스키마가 바뀔 때마다 고쳐야 하고 타입 안전성도 없다. ORM은 이를 C# 코드로 옮겨 실수를 줄인다. 다만 성능이 중요한 복잡한 보고서 쿼리는 SQL을 직접 쓰는 편이 나을 때도 있다(B12).
-- 단점도 있다. EF Core가 DB를 너무 잘 감춰서, C#에서는 되지만 DB로는 번역이 안 되는 코드를 쓰기 쉽다(예: 식 본문 속성 `FullName`으로 `Where`/`OrderBy`). 그래서 내부에서 어떤 SQL이 나가는지 로그로 확인하는 습관이 중요하다(B5).
-- `DbContext`는 DB 연결을 유지하고, 객체의 변경을 추적하고, 트랜잭션을 관리하고, 저장(`SaveChanges`)을 맡는 클래스다(B12). `DbSet<T>` 속성 하나가 테이블 하나에 대응한다. 옵션(DB 종류, 연결 문자열)은 생성자로 받는다(B5).
-- `DbSet` 속성을 `{ get; set; }` 대신 `=> Set<Player>()`로 쓰는 것은 nullable 참조 형식 경고를 없애려는 방법이다. B12는 `!`(null 허용 연산자)를 쓰거나 경고를 그냥 두어도 된다고 함께 소개한다.
-- `DbContext`는 `IDisposable`이므로 직접 만들었다면 `using`으로 정리해야 한다(B5). 웹 서버에서는 DI가 대신 관리한다(7절).
+- ORM(Object-Relational Mapper)은 DB 테이블·열을 C# 클래스·속성에 연결해 준다. 테이블 = 클래스, 열 = 속성, 행 = 객체, SQL의 `WHERE` = LINQ의 `Where`에 대응한다(Entity Framework Core in Action 표 1.1).
+- SQL 문자열을 직접 쓰면 스키마가 바뀔 때마다 고쳐야 하고 타입 안전성도 없다. ORM은 이를 C# 코드로 옮겨 실수를 줄인다. 다만 성능이 중요한 복잡한 보고서 쿼리는 SQL을 직접 쓰는 편이 나을 때도 있다(Web API Development with ASP.NET Core 8).
+- 단점도 있다. EF Core가 DB를 너무 잘 감춰서, C#에서는 되지만 DB로는 번역이 안 되는 코드를 쓰기 쉽다(예: 식 본문 속성 `FullName`으로 `Where`/`OrderBy`). 그래서 내부에서 어떤 SQL이 나가는지 로그로 확인하는 습관이 중요하다(Entity Framework Core in Action).
+- `DbContext`는 DB 연결을 유지하고, 객체의 변경을 추적하고, 트랜잭션을 관리하고, 저장(`SaveChanges`)을 맡는 클래스다(Web API Development with ASP.NET Core 8). `DbSet<T>` 속성 하나가 테이블 하나에 대응한다. 옵션(DB 종류, 연결 문자열)은 생성자로 받는다(Entity Framework Core in Action).
+- `DbSet` 속성을 `{ get; set; }` 대신 `=> Set<Player>()`로 쓰는 것은 nullable 참조 형식 경고를 없애려는 방법이다. Web API Development with ASP.NET Core 8은 `!`(null 허용 연산자)를 쓰거나 경고를 그냥 두어도 된다고 함께 소개한다.
+- `DbContext`는 `IDisposable`이므로 직접 만들었다면 `using`으로 정리해야 한다(Entity Framework Core in Action). 웹 서버에서는 DI가 대신 관리한다(7절).
 
 ```csharp
 using System.ComponentModel.DataAnnotations;
@@ -69,15 +63,15 @@ public class GameDbContext(DbContextOptions<GameDbContext> options) : DbContext(
 
 ### 2. 엔티티 모델과 매핑 (규칙, 어노테이션, Fluent API)
 
-> 📖 출처: B12 5장 "Configuring the mapping between models and database" (b12.txt L9515-10240, 규칙 L9528, 어노테이션 L9700, Fluent API L9887, 설정 분리 L10161), B5 4장 테이블 이름 규칙 설명 (b5.txt L6482-6487)
+> 📖 출처: Web API Development with ASP.NET Core 8 5장 "Configuring the mapping between models and database" (텍스트 L9515-10240, 규칙 L9528, 어노테이션 L9700, Fluent API L9887, 설정 분리 L10161), Entity Framework Core in Action 4장 테이블 이름 규칙 설명 (텍스트 L6482-6487)
 
 **한 줄 요약**: 아무 설정을 안 해도 EF Core가 규칙으로 매핑해 주고, 필요한 부분만 어노테이션이나 Fluent API로 덮어쓴다.
 
 **핵심 설명**
-- **규칙(convention)**: `Id` 또는 `<클래스명>Id`는 기본 키, 열 이름은 속성 이름이다. 테이블 이름은 `DbSet` 속성 이름이고(B5), `DbSet`이 없는 엔티티는 클래스 이름이 된다. SQL Server 기준으로 `string`은 `nvarchar(max)`, `decimal`은 `decimal(18,2)`, `enum`은 기본적으로 `int`로 저장된다(B12 표 5.1). 외래 키 열에는 자동으로 인덱스가 만들어진다(B12).
-- **데이터 어노테이션**: 클래스·속성 위에 `[Table]`, `[Column]`, `[Key]`, `[Required]`, `[MaxLength]` 같은 특성을 붙인다. 설정이 모델 클래스 안에 들어가므로 이해하기 쉽지만, 클래스가 DB 설정으로 오염된다는 단점이 있다(B12).
-- **Fluent API**: `OnModelCreating`에서 `HasMaxLength`, `IsRequired`, `HasIndex`, `HasConversion` 등을 호출한다. 같은 속성을 어노테이션과 Fluent API 양쪽에서 설정하면 Fluent API가 이기며, B12는 Fluent API를 권장한다.
-- B12는 최적의 성능을 위해 엔티티마다 매핑을 명시하라고 권한다. 문자열이 `nvarchar(max)`가 되는 기본값이 항상 효율적이진 않기 때문이다. 엔티티가 많아지면 `IEntityTypeConfiguration<T>` 클래스로 설정을 나누고 `ApplyConfigurationsFromAssembly`로 한꺼번에 적용한다. 이때 설정 클래스는 `DbContext`와 같은 어셈블리에 있어야 하고 적용 순서는 통제할 수 없다. 순서가 중요하면 하나씩 직접 호출한다.
+- **규칙(convention)**: `Id` 또는 `<클래스명>Id`는 기본 키, 열 이름은 속성 이름이다. 테이블 이름은 `DbSet` 속성 이름이고(Entity Framework Core in Action), `DbSet`이 없는 엔티티는 클래스 이름이 된다. SQL Server 기준으로 `string`은 `nvarchar(max)`, `decimal`은 `decimal(18,2)`, `enum`은 기본적으로 `int`로 저장된다(Web API Development with ASP.NET Core 8 표 5.1). 외래 키 열에는 자동으로 인덱스가 만들어진다(Web API Development with ASP.NET Core 8).
+- **데이터 어노테이션**: 클래스·속성 위에 `[Table]`, `[Column]`, `[Key]`, `[Required]`, `[MaxLength]` 같은 특성을 붙인다. 설정이 모델 클래스 안에 들어가므로 이해하기 쉽지만, 클래스가 DB 설정으로 오염된다는 단점이 있다(Web API Development with ASP.NET Core 8).
+- **Fluent API**: `OnModelCreating`에서 `HasMaxLength`, `IsRequired`, `HasIndex`, `HasConversion` 등을 호출한다. 같은 속성을 어노테이션과 Fluent API 양쪽에서 설정하면 Fluent API가 이기며, Web API Development with ASP.NET Core 8은 Fluent API를 권장한다.
+- Web API Development with ASP.NET Core 8은 최적의 성능을 위해 엔티티마다 매핑을 명시하라고 권한다. 문자열이 `nvarchar(max)`가 되는 기본값이 항상 효율적이진 않기 때문이다. 엔티티가 많아지면 `IEntityTypeConfiguration<T>` 클래스로 설정을 나누고 `ApplyConfigurationsFromAssembly`로 한꺼번에 적용한다. 이때 설정 클래스는 `DbContext`와 같은 어셈블리에 있어야 하고 적용 순서는 통제할 수 없다. 순서가 중요하면 하나씩 직접 호출한다.
 - 매핑을 바꿀 때마다 `dotnet ef migrations add`로 새 마이그레이션을 만들고 DB에 적용해야 한다. 타입을 바꾸는 매핑 변경은 데이터가 잘릴 수 있다(예: `nvarchar(max)` -> `varchar(32)`는 32자로 잘림).
 
 ```csharp
@@ -123,16 +117,16 @@ public class ConfiguredDbContext(DbContextOptions<ConfiguredDbContext> options) 
 
 ### 3. 조회: LINQ 쿼리, 필터·정렬·페이징, 관련 데이터 로딩
 
-> 📖 출처: B5 2장 "Understanding database queries" / "Loading related data" / "Adding sorting, filtering, and paging" (b5.txt L3163-3618, L4014-4030), B12 5장 "Basic LINQ queries" (b12.txt L9107-9262), B12 6장 "Querying data" (b12.txt L10473-10525)
+> 📖 출처: Entity Framework Core in Action 2장 "Understanding database queries" / "Loading related data" / "Adding sorting, filtering, and paging" (텍스트 L3163-3618, L4014-4030), Web API Development with ASP.NET Core 8 5장 "Basic LINQ queries" (텍스트 L9107-9262), Web API Development with ASP.NET Core 8 6장 "Querying data" (텍스트 L10473-10525)
 
 **한 줄 요약**: `DbSet`에 LINQ를 이어 붙이고 마지막에 `ToListAsync()` 같은 실행 메서드를 부르면 그때 SQL이 나간다.
 
 **핵심 설명**
-- 쿼리는 세 부분이다. (1) `DbSet` 접근 (2) `Where`/`OrderBy`/`Skip`/`Take` 같은 LINQ 연산 (3) 실행 메서드(`ToList`, `First`, `Count`, `foreach` 등). 실행 전까지는 식(expression tree)으로만 쌓여 있다. 필터·정렬·페이징을 실행 메서드 앞에 두어야 DB 안에서 처리된다(B5).
-- 한 건 찾기(B12): `Find`는 기본 키로 찾고 이미 추적 중이면 DB를 안 간다(없으면 null). `Single`은 정확히 1건이어야 하고(0건·2건 이상이면 예외), `SingleOrDefault`는 0건이면 기본값(null)을 주되 2건 이상이면 예외다. `First`는 여러 건이어도 첫 번째를 주고 0건이면 예외, `FirstOrDefault`는 0건이면 null이다. `Find`/`...OrDefault` 계열은 null 체크를 잊지 않는다. (참고로 B5 저자는 `Find`가 추적 확인 때문에 `SingleOrDefault`보다 약간 느리다고 하며 `SingleOrDefault`를 선호한다.)
-- 페이징: `OrderBy...` -> `Skip((page-1)*pageSize)` -> `Take(pageSize)`. 페이징에는 정렬이 꼭 필요하다(B5).
-- 관련 데이터는 기본으로 안 불러온다. `Include`를 안 하면 관련 컬렉션은 채워지지 않는다(B5는 기본값이 null이라고 설명). 불러오는 방법은 네 가지다(B5): **Eager**(`Include`/`ThenInclude`, 한 번에 효율적으로, 대신 필요 없는 데이터까지 읽음), **Explicit**(`Entry(x).Collection(...).Load()`, 나중에, 대신 DB 왕복이 늘어남), **Select**(필요한 열만 골라 DTO로, 대신 열마다 코드를 써야 함), **Lazy**(접근할 때 자동 조회, `virtual` 탐색 속성과 `UseLazyLoadingProxies`가 필요하고 DB 접근이 많아져 성능에 나쁨).
-- `Include`는 조인 때문에 중복 데이터가 커질 수 있고, 자식이 수백~수천 건이면 목록 화면에 부적합하다. 이럴 땐 `AsSplitQuery()`로 쿼리를 나누거나 아예 Include를 안 쓴다. 쿼리를 나누면 DB 왕복이 늘고, 두 쿼리 사이에 데이터가 바뀌면 결과가 어긋날 수 있으니 장단점을 따져 쓴다(B12).
+- 쿼리는 세 부분이다. (1) `DbSet` 접근 (2) `Where`/`OrderBy`/`Skip`/`Take` 같은 LINQ 연산 (3) 실행 메서드(`ToList`, `First`, `Count`, `foreach` 등). 실행 전까지는 식(expression tree)으로만 쌓여 있다. 필터·정렬·페이징을 실행 메서드 앞에 두어야 DB 안에서 처리된다(Entity Framework Core in Action).
+- 한 건 찾기(Web API Development with ASP.NET Core 8): `Find`는 기본 키로 찾고 이미 추적 중이면 DB를 안 간다(없으면 null). `Single`은 정확히 1건이어야 하고(0건·2건 이상이면 예외), `SingleOrDefault`는 0건이면 기본값(null)을 주되 2건 이상이면 예외다. `First`는 여러 건이어도 첫 번째를 주고 0건이면 예외, `FirstOrDefault`는 0건이면 null이다. `Find`/`...OrDefault` 계열은 null 체크를 잊지 않는다. (참고로 Entity Framework Core in Action 저자는 `Find`가 추적 확인 때문에 `SingleOrDefault`보다 약간 느리다고 하며 `SingleOrDefault`를 선호한다.)
+- 페이징: `OrderBy...` -> `Skip((page-1)*pageSize)` -> `Take(pageSize)`. 페이징에는 정렬이 꼭 필요하다(Entity Framework Core in Action).
+- 관련 데이터는 기본으로 안 불러온다. `Include`를 안 하면 관련 컬렉션은 채워지지 않는다(Entity Framework Core in Action은 기본값이 null이라고 설명). 불러오는 방법은 네 가지다(Entity Framework Core in Action): **Eager**(`Include`/`ThenInclude`, 한 번에 효율적으로, 대신 필요 없는 데이터까지 읽음), **Explicit**(`Entry(x).Collection(...).Load()`, 나중에, 대신 DB 왕복이 늘어남), **Select**(필요한 열만 골라 DTO로, 대신 열마다 코드를 써야 함), **Lazy**(접근할 때 자동 조회, `virtual` 탐색 속성과 `UseLazyLoadingProxies`가 필요하고 DB 접근이 많아져 성능에 나쁨).
+- `Include`는 조인 때문에 중복 데이터가 커질 수 있고, 자식이 수백~수천 건이면 목록 화면에 부적합하다. 이럴 땐 `AsSplitQuery()`로 쿼리를 나누거나 아예 Include를 안 쓴다. 쿼리를 나누면 DB 왕복이 늘고, 두 쿼리 사이에 데이터가 바뀌면 결과가 어긋날 수 있으니 장단점을 따져 쓴다(Web API Development with ASP.NET Core 8).
 
 ```csharp
 using Microsoft.EntityFrameworkCore;
@@ -165,18 +159,18 @@ public static class HeroQueries
 
 ### 4. 생성·수정·삭제와 엔티티 상태
 
-> 📖 출처: B5 3장 "Introducing EF Core's entity State" / "Creating new rows" / "Updating database rows" / "Deleting entities" (b5.txt L4416-4711 상태·생성, L4712-5098 수정, L5880-6095 삭제), B12 5장 "Creating an entity" / "Updating an entity" (b12.txt L9264-9431)
+> 📖 출처: Entity Framework Core in Action 3장 "Introducing EF Core's entity State" / "Creating new rows" / "Updating database rows" / "Deleting entities" (텍스트 L4416-4711 상태·생성, L4712-5098 수정, L5880-6095 삭제), Web API Development with ASP.NET Core 8 5장 "Creating an entity" / "Updating an entity" (텍스트 L9264-9431)
 
 **한 줄 요약**: 엔티티에는 상태(State)가 붙고, `SaveChanges`가 상태를 보고 INSERT/UPDATE/DELETE를 만든다.
 
 **핵심 설명**
-- 상태 다섯 가지: `Added`(새 행, INSERT), `Unchanged`(변경 없음, 무시), `Modified`(UPDATE), `Deleted`(DELETE), `Detached`(추적 안 함). `AsNoTracking` 없이 쿼리로 읽어 온 엔티티는 `Unchanged`로 시작하고, 속성을 바꾸면 `Modified`가 된다(B5, B12). `Add`/`Remove`가 상태를 `Added`/`Deleted`로 바꾸고, 저장에 성공하면 새로 넣은 엔티티도 `Unchanged`가 된다(B5).
-- **생성**: 엔티티를 `Add`하고 `SaveChanges`. DB가 만든 기본 키(IDENTITY)는 저장 뒤 객체에 채워진다(B5). 부모 엔티티만 `Add`해도 그에 딸린 새 자식 엔티티가 함께 INSERT된다(B5). 이미 DB에 있는 엔티티(예: 기존 Author)를 새 엔티티와 연결할 때는 추적 중인 인스턴스를 조회해서 연결해야 다시 INSERT되지 않는다(B5).
-- **수정**: 읽기 -> 속성 변경 -> `SaveChanges`. `SaveChanges` 안의 `DetectChanges`가 처음 읽은 스냅샷과 비교해 바뀐 열만 UPDATE한다(B5).
-- 웹에서는 요청마다 `DbContext`가 새로 생기므로 "연결이 끊긴 수정(disconnected update)"이 된다(B5). 방법은 두 가지다. (1) 기본 키와 바꿀 값만 받아서(DTO) 다시 조회한 뒤 그 속성만 고친다. 데이터가 적어 빠르고, 클라이언트가 가격 같은 값을 조작하지 못해 더 안전하다. 대신 복사할 속성 코드를 써야 한다(B5). (2) 전체 데이터를 받아 `Update`(또는 `Entry(x).State = Modified`)로 저장한다. 다시 읽지 않아 빠르지만, 상태가 `Modified`이므로 값이 바뀌었든 아니든 모든 열이 UPDATE되고(B12), 데이터를 보내는 쪽을 믿어야 한다(B5).
-- `Find`는 추적 중이면 DB를 가지 않지만, `ExecuteUpdate`처럼 추적을 거치지 않은 변경이 있었다면 옛 값을 돌려줄 수 있다(B12, 11절).
-- **삭제**: `Remove` 후 `SaveChanges`. 관계가 있는 엔티티를 지울 때의 동작은 5절에서 다룬다. 실제로 지우지 않고 `SoftDeleted` 플래그와 전역 쿼리 필터(`HasQueryFilter`)로 숨기는 소프트 삭제도 있다. 필터를 무시하려면 `IgnoreQueryFilters()`를 쓴다(B5).
-- `SaveChanges`는 작업 끝에 한 번만 부르는 것이 원칙이다. 생성·수정·삭제가 섞여 있어도 DB가 하나라도 거부하면 전부 거부되는 단위(Unit of Work, 내부적으로 DB 트랜잭션)가 되기 때문이다(B5).
+- 상태 다섯 가지: `Added`(새 행, INSERT), `Unchanged`(변경 없음, 무시), `Modified`(UPDATE), `Deleted`(DELETE), `Detached`(추적 안 함). `AsNoTracking` 없이 쿼리로 읽어 온 엔티티는 `Unchanged`로 시작하고, 속성을 바꾸면 `Modified`가 된다(Entity Framework Core in Action, Web API Development with ASP.NET Core 8). `Add`/`Remove`가 상태를 `Added`/`Deleted`로 바꾸고, 저장에 성공하면 새로 넣은 엔티티도 `Unchanged`가 된다(Entity Framework Core in Action).
+- **생성**: 엔티티를 `Add`하고 `SaveChanges`. DB가 만든 기본 키(IDENTITY)는 저장 뒤 객체에 채워진다(Entity Framework Core in Action). 부모 엔티티만 `Add`해도 그에 딸린 새 자식 엔티티가 함께 INSERT된다(Entity Framework Core in Action). 이미 DB에 있는 엔티티(예: 기존 Author)를 새 엔티티와 연결할 때는 추적 중인 인스턴스를 조회해서 연결해야 다시 INSERT되지 않는다(Entity Framework Core in Action).
+- **수정**: 읽기 -> 속성 변경 -> `SaveChanges`. `SaveChanges` 안의 `DetectChanges`가 처음 읽은 스냅샷과 비교해 바뀐 열만 UPDATE한다(Entity Framework Core in Action).
+- 웹에서는 요청마다 `DbContext`가 새로 생기므로 "연결이 끊긴 수정(disconnected update)"이 된다(Entity Framework Core in Action). 방법은 두 가지다. (1) 기본 키와 바꿀 값만 받아서(DTO) 다시 조회한 뒤 그 속성만 고친다. 데이터가 적어 빠르고, 클라이언트가 가격 같은 값을 조작하지 못해 더 안전하다. 대신 복사할 속성 코드를 써야 한다(Entity Framework Core in Action). (2) 전체 데이터를 받아 `Update`(또는 `Entry(x).State = Modified`)로 저장한다. 다시 읽지 않아 빠르지만, 상태가 `Modified`이므로 값이 바뀌었든 아니든 모든 열이 UPDATE되고(Web API Development with ASP.NET Core 8), 데이터를 보내는 쪽을 믿어야 한다(Entity Framework Core in Action).
+- `Find`는 추적 중이면 DB를 가지 않지만, `ExecuteUpdate`처럼 추적을 거치지 않은 변경이 있었다면 옛 값을 돌려줄 수 있다(Web API Development with ASP.NET Core 8, 11절).
+- **삭제**: `Remove` 후 `SaveChanges`. 관계가 있는 엔티티를 지울 때의 동작은 5절에서 다룬다. 실제로 지우지 않고 `SoftDeleted` 플래그와 전역 쿼리 필터(`HasQueryFilter`)로 숨기는 소프트 삭제도 있다. 필터를 무시하려면 `IgnoreQueryFilters()`를 쓴다(Entity Framework Core in Action).
+- `SaveChanges`는 작업 끝에 한 번만 부르는 것이 원칙이다. 생성·수정·삭제가 섞여 있어도 DB가 하나라도 거부하면 전부 거부되는 단위(Unit of Work, 내부적으로 DB 트랜잭션)가 되기 때문이다(Entity Framework Core in Action).
 
 ```csharp
 using Microsoft.EntityFrameworkCore;
@@ -219,20 +213,20 @@ public static class HeroCommands
 
 ### 5. 관계: 일대다, 일대일, 다대다
 
-> 📖 출처: B12 6장 "Understanding one-to-many / one-to-one / many-to-many relationships" (b12.txt L10304-11070), B5 3장 "Handling relationships in updates" (b5.txt L5099-5879, 삭제 관계 L5997-6095)
+> 📖 출처: Web API Development with ASP.NET Core 8 6장 "Understanding one-to-many / one-to-one / many-to-many relationships" (텍스트 L10304-11070), Entity Framework Core in Action 3장 "Handling relationships in updates" (텍스트 L5099-5879, 삭제 관계 L5997-6095)
 
 **한 줄 요약**: 클래스 안의 탐색 속성과 외래 키 속성으로 관계를 표현하고, EF Core가 대부분 규칙으로 알아낸다.
 
 **핵심 설명**
 - 용어: **주(principal) 엔티티**는 기본 키를 가진 쪽(부모), **종속(dependent) 엔티티**는 외래 키를 가진 쪽(자식). **탐색 속성**은 관련 엔티티를 가리키는 속성이다(컬렉션형, 참조형).
-- **일대다**: 한쪽에 `List<자식>`, 다른 쪽에 `부모?` 참조와 `부모Id`. 탐색 속성만 있어도 규칙으로 인식된다(외래 키 속성이 없으면 EF Core가 그림자 외래 키를 만든다). 명시하려면 `HasMany().WithOne().HasForeignKey()` 또는 `HasOne().WithMany()`를 쓰며, 한쪽에서만 설정하면 된다(B12).
-- **일대일**: 양쪽이 참조 속성을 갖고, 어느 쪽이 종속인지 외래 키로 명시해야 한다: `HasOne().WithOne().HasForeignKey<종속>(...)`. 외래 키가 없으면 EF Core가 종속 쪽을 마음대로 고를 수 있다(B12).
-- **다대다**: 양쪽에 컬렉션 속성만 두면 EF Core가 연결 테이블을 자동 생성한다. 테이블·열 이름을 바꾸거나 연결에 추가 열이 필요하면 연결 엔티티를 직접 정의하고 `UsingEntity`로 설정한다(B12). 연결 엔티티 방식은 `Include`로 연결 테이블을 정렬·필터할 수 있고, 직접 연결 방식은 코딩이 훨씬 쉽지만 연결 테이블에 접근할 수 없다(B5).
-- **부모를 저장하면 새 자식도 함께 INSERT**된다. 기존 부모에 자식을 추가하는 방법은 둘이다. (1) 부모를 조회해 컬렉션에 추가하고 저장한다(부모의 수정, PUT). (2) 자식을 만들어 외래 키를 채워 저장한다(자식의 생성, POST). 자식이 적으면 (1)이 흔하고, 자식이 아주 많으면 (2)처럼 자식 전용 엔드포인트를 두는 편이 효율적이다(B12). 외래 키만 바꾸어 관계를 옮기면 부모와 컬렉션을 로드하지 않아도 되어 성능에 유리하다(B5).
-- **관계를 갱신할 때는 기존 관계를 먼저 로드**해야 한다(B5). 일대일에서 기존 항목이 있는데 로드하지 않고 새로 붙이면 외래 키 중복 예외가 난다. 일대다 컬렉션을 통째로 새 컬렉션으로 교체할 때도 `Include`로 먼저 로드해야 옛 항목이 지워지고(외래 키가 null 불가일 때 기본 동작), 로드하지 않으면 옛 항목이 그대로 남아 새 항목과 합쳐진다. 로드하지 않고 직접 행을 만드는 방식은 성능에 유리하지만 관계 관리를 직접 해야 한다.
-- **삭제와 관계**: 필수(외래 키 null 불가) 관계는 기본이 연쇄 삭제(Cascade)라 부모를 지우면 자식도 지워진다. 외래 키가 null 가능하면 `null`로 바꾸는 방식(`ClientSetNull`)을 쓸 수 있고, 둘 다 아니면 DB가 오류를 낸다(B5, B12). 연쇄 삭제가 DB 수준으로 설정돼 있으면 `Include` 없이도 자식이 지워지지만, B5는 자식을 로드해야 EF Core가 알고 삭제한다고 설명한다. B12는 DB가 연쇄 삭제를 지원하지 않을 수 있으므로 `ClientCascade`/`ClientSetNull` 사용을 권한다. 주문 내역처럼 남겨야 하는 자식이 있으면 `Restrict`로 부모 삭제를 막을 수 있다(B5).
-- 주의(B12): 양방향 탐색 속성이 있는 엔티티를 그대로 JSON으로 내보내면 순환 참조 예외가 난다. `ReferenceHandler.IgnoreCycles`나 `[JsonIgnore]`로 해결한다. 이 예외는 데이터가 DB에 저장된 뒤에 발생한다.
-- 주의(B12): 다대다에서 관련 엔티티를 통째로 담아 저장하면 같은 제목의 엔티티가 중복 생성될 수 있다. 유니크 인덱스, 존재 확인, ID만 보내는 별도 엔드포인트로 막는다.
+- **일대다**: 한쪽에 `List<자식>`, 다른 쪽에 `부모?` 참조와 `부모Id`. 탐색 속성만 있어도 규칙으로 인식된다(외래 키 속성이 없으면 EF Core가 그림자 외래 키를 만든다). 명시하려면 `HasMany().WithOne().HasForeignKey()` 또는 `HasOne().WithMany()`를 쓰며, 한쪽에서만 설정하면 된다(Web API Development with ASP.NET Core 8).
+- **일대일**: 양쪽이 참조 속성을 갖고, 어느 쪽이 종속인지 외래 키로 명시해야 한다: `HasOne().WithOne().HasForeignKey<종속>(...)`. 외래 키가 없으면 EF Core가 종속 쪽을 마음대로 고를 수 있다(Web API Development with ASP.NET Core 8).
+- **다대다**: 양쪽에 컬렉션 속성만 두면 EF Core가 연결 테이블을 자동 생성한다. 테이블·열 이름을 바꾸거나 연결에 추가 열이 필요하면 연결 엔티티를 직접 정의하고 `UsingEntity`로 설정한다(Web API Development with ASP.NET Core 8). 연결 엔티티 방식은 `Include`로 연결 테이블을 정렬·필터할 수 있고, 직접 연결 방식은 코딩이 훨씬 쉽지만 연결 테이블에 접근할 수 없다(Entity Framework Core in Action).
+- **부모를 저장하면 새 자식도 함께 INSERT**된다. 기존 부모에 자식을 추가하는 방법은 둘이다. (1) 부모를 조회해 컬렉션에 추가하고 저장한다(부모의 수정, PUT). (2) 자식을 만들어 외래 키를 채워 저장한다(자식의 생성, POST). 자식이 적으면 (1)이 흔하고, 자식이 아주 많으면 (2)처럼 자식 전용 엔드포인트를 두는 편이 효율적이다(Web API Development with ASP.NET Core 8). 외래 키만 바꾸어 관계를 옮기면 부모와 컬렉션을 로드하지 않아도 되어 성능에 유리하다(Entity Framework Core in Action).
+- **관계를 갱신할 때는 기존 관계를 먼저 로드**해야 한다(Entity Framework Core in Action). 일대일에서 기존 항목이 있는데 로드하지 않고 새로 붙이면 외래 키 중복 예외가 난다. 일대다 컬렉션을 통째로 새 컬렉션으로 교체할 때도 `Include`로 먼저 로드해야 옛 항목이 지워지고(외래 키가 null 불가일 때 기본 동작), 로드하지 않으면 옛 항목이 그대로 남아 새 항목과 합쳐진다. 로드하지 않고 직접 행을 만드는 방식은 성능에 유리하지만 관계 관리를 직접 해야 한다.
+- **삭제와 관계**: 필수(외래 키 null 불가) 관계는 기본이 연쇄 삭제(Cascade)라 부모를 지우면 자식도 지워진다. 외래 키가 null 가능하면 `null`로 바꾸는 방식(`ClientSetNull`)을 쓸 수 있고, 둘 다 아니면 DB가 오류를 낸다(Entity Framework Core in Action, Web API Development with ASP.NET Core 8). 연쇄 삭제가 DB 수준으로 설정돼 있으면 `Include` 없이도 자식이 지워지지만, Entity Framework Core in Action은 자식을 로드해야 EF Core가 알고 삭제한다고 설명한다. Web API Development with ASP.NET Core 8은 DB가 연쇄 삭제를 지원하지 않을 수 있으므로 `ClientCascade`/`ClientSetNull` 사용을 권한다. 주문 내역처럼 남겨야 하는 자식이 있으면 `Restrict`로 부모 삭제를 막을 수 있다(Entity Framework Core in Action).
+- 주의(Web API Development with ASP.NET Core 8): 양방향 탐색 속성이 있는 엔티티를 그대로 JSON으로 내보내면 순환 참조 예외가 난다. `ReferenceHandler.IgnoreCycles`나 `[JsonIgnore]`로 해결한다. 이 예외는 데이터가 DB에 저장된 뒤에 발생한다.
+- 주의(Web API Development with ASP.NET Core 8): 다대다에서 관련 엔티티를 통째로 담아 저장하면 같은 제목의 엔티티가 중복 생성될 수 있다. 유니크 인덱스, 존재 확인, ID만 보내는 별도 엔드포인트로 막는다.
 
 ```csharp
 using System.Text.Json.Serialization;
@@ -271,7 +265,7 @@ public static class RelationSetup
 ```csharp
 public static class HeroRelationUpdates
 {
-    // 컬렉션 통째 교체: Include로 먼저 로드해야 옛 항목이 삭제된다(B5 3.4.3)
+    // 컬렉션 통째 교체: Include로 먼저 로드해야 옛 항목이 삭제된다(Entity Framework Core in Action 3.4.3)
     public static async Task ReplaceHeroesAsync(GameDbContext db, int playerId, List<Hero> newHeroes)
     {
         var player = await db.Players.Include(p => p.Heroes).SingleAsync(p => p.Id == playerId);
@@ -279,7 +273,7 @@ public static class HeroRelationUpdates
         await db.SaveChangesAsync();
     }
 
-    // 외래 키만 바꿔 관계 이동: 부모와 컬렉션을 로드하지 않아도 된다(B5 3.4.5)
+    // 외래 키만 바꿔 관계 이동: 부모와 컬렉션을 로드하지 않아도 된다(Entity Framework Core in Action 3.4.5)
     public static async Task MoveHeroAsync(GameDbContext db, int heroId, int newPlayerId)
     {
         var hero = await db.Heroes.FindAsync(heroId);
@@ -300,15 +294,15 @@ public static class HeroRelationUpdates
 
 ### 6. 비즈니스 로직과 DB 코드 분리
 
-> 📖 출처: B5 4장 "The questions to ask and the decisions you need to make before you start coding" / "Using a design pattern to implement complex business logic" (b5.txt L6193-6330, L6331-6398)
+> 📖 출처: Entity Framework Core in Action 4장 "The questions to ask and the decisions you need to make before you start coding" / "Using a design pattern to implement complex business logic" (텍스트 L6193-6330, L6331-6398)
 
 **한 줄 요약**: 규칙을 계산하는 코드는 DB를 모르게 만들고, 불러오기와 `SaveChanges`는 바깥의 실행 담당이 맡는다.
 
 **핵심 설명**
-- 비즈니스 규칙은 사람이 읽을 수 있는 문장(예: "책 가격은 음수일 수 없다")이고, 그것을 구현한 코드가 비즈니스 로직이다. 난이도는 검증, 단순, 복잡 세 단계로 나눠 볼 수 있다(B5).
-- 복잡한 로직을 위한 다섯 가지 지침(B5): (1) 로직이 DB 구조를 먼저 정의한다 (2) 로직에는 잡음(웹·화면 관련 코드)이 없어야 한다 (3) 로직은 데이터가 메모리에 있는 것처럼 작성한다 (4) DB 접근 코드는 별도 프로젝트로 분리한다(로직마다 짝이 되는 DB 접근 클래스를 둔다) (5) 로직은 `SaveChanges`를 직접 부르지 않고, 서비스 계층의 실행 클래스가 오류가 없을 때만 호출한다.
-- 이 방식은 비즈니스 로직을 쓰고, 테스트하고, 성능을 조율하기 쉽게 만들어 준다(B5). 단순한 로직은 빠르게 작성하고, 복잡한 로직에만 이런 구조적인 접근을 쓰라는 것이 책의 조언이다. 세 단계는 엄격한 규칙이 아니라 논의를 위한 기준이다.
-- 오류를 위로 전달하는 방법은 예외를 던지는 것과 상태 객체로 오류 목록을 돌려주는 것 두 가지이며, 책의 예제는 후자를 쓴다(B5). 아래 예제의 `string?` 반환도 같은 발상이다.
+- 비즈니스 규칙은 사람이 읽을 수 있는 문장(예: "책 가격은 음수일 수 없다")이고, 그것을 구현한 코드가 비즈니스 로직이다. 난이도는 검증, 단순, 복잡 세 단계로 나눠 볼 수 있다(Entity Framework Core in Action).
+- 복잡한 로직을 위한 다섯 가지 지침(Entity Framework Core in Action): (1) 로직이 DB 구조를 먼저 정의한다 (2) 로직에는 잡음(웹·화면 관련 코드)이 없어야 한다 (3) 로직은 데이터가 메모리에 있는 것처럼 작성한다 (4) DB 접근 코드는 별도 프로젝트로 분리한다(로직마다 짝이 되는 DB 접근 클래스를 둔다) (5) 로직은 `SaveChanges`를 직접 부르지 않고, 서비스 계층의 실행 클래스가 오류가 없을 때만 호출한다.
+- 이 방식은 비즈니스 로직을 쓰고, 테스트하고, 성능을 조율하기 쉽게 만들어 준다(Entity Framework Core in Action). 단순한 로직은 빠르게 작성하고, 복잡한 로직에만 이런 구조적인 접근을 쓰라는 것이 책의 조언이다. 세 단계는 엄격한 규칙이 아니라 논의를 위한 기준이다.
+- 오류를 위로 전달하는 방법은 예외를 던지는 것과 상태 객체로 오류 목록을 돌려주는 것 두 가지이며, 책의 예제는 후자를 쓴다(Entity Framework Core in Action). 아래 예제의 `string?` 반환도 같은 발상이다.
 - 책은 이 방식을 "트랜잭션 스크립트(절차형) 패턴"이라 부르며, 도메인 모델이 빈약하다는 비판(anemic domain model)이 있음도 밝힌다.
 
 ```csharp
@@ -352,17 +346,17 @@ public class HeroShopService(GameDbContext db)
 
 ### 7. 웹 앱에서 DbContext: DI 등록, 수명, async
 
-> 📖 출처: B5 5장 "The lifetime of a service created by DI" (b5.txt L8100-8170), "Making the application's DbContext available via DI" (b5.txt L8192-8358), "Using async/await for better scalability" (b5.txt L9295-9453), "Running parallel tasks" (b5.txt L9454-9566), B12 5장 (b12.txt L8827-8834, L9083-9090), B12 7장 "Understanding DbContext pooling" (b12.txt L11188-11256)
+> 📖 출처: Entity Framework Core in Action 5장 "The lifetime of a service created by DI" (텍스트 L8100-8170), "Making the application's DbContext available via DI" (텍스트 L8192-8358), "Using async/await for better scalability" (텍스트 L9295-9453), "Running parallel tasks" (텍스트 L9454-9566), Web API Development with ASP.NET Core 8 5장 (텍스트 L8827-8834, L9083-9090), Web API Development with ASP.NET Core 8 7장 "Understanding DbContext pooling" (텍스트 L11188-11256)
 
 **한 줄 요약**: `AddDbContext`로 등록하면 요청마다 새 `DbContext`가 생기고 요청이 끝나면 버려지며, DB 호출은 항상 async로 한다.
 
 **핵심 설명**
-- 연결 문자열은 `appsettings.json`(개발용은 `appsettings.Development.json`)에 두고 `GetConnectionString`으로 읽는다. 배포할 때 바꿀 수 있어야 하기 때문이다(B5, B12).
-- `AddDbContext<T>`는 `DbContext`를 **Scoped**로 등록한다. 즉 한 HTTP 요청 안에서는 같은 인스턴스를 공유하고(여러 클래스에 주입해도 같은 것), 요청이 끝나면 Dispose된다. 그래서 여러 클래스가 한 작업을 나눠 하고 마지막에 `SaveChanges` 한 번으로 저장할 수 있다(B5).
-- `DbContext`는 스레드에 안전하지 않다. 같은 인스턴스를 여러 작업(Task)이 동시에 쓰면 예외가 난다. 요청마다 새로 만드는 것이 이 문제도 해결한다(B5).
-- 백그라운드 작업에서는 `IServiceScopeFactory`로 스코프를 직접 만들고 그 안에서 `DbContext`를 얻는다. 반복 실행이라면 매번 새 인스턴스를 써야 지난 실행의 데이터가 다음 실행에 영향을 주지 않는다(B5).
-- async를 쓰면 DB를 기다리는 동안 스레드를 반납해 더 많은 동시 사용자를 처리한다. 동기 버전이 아주 약간 빠르지만 그 차이는 작아서, 책은 웹에서는 항상 async 사용이라는 Microsoft 지침을 따르라고 한다. async 메서드에는 취소 토큰(`CancellationToken`)을 선택적으로 넘길 수 있다(B5).
-- 처리량이 매우 높을 때는 `AddDbContextPool`로 `DbContext` 인스턴스를 재사용할 수 있다(반납 시 상태를 초기화하며, 풀 크기 기본값은 1024). 하지만 대부분의 앱에는 필요 없고, 켜기 전후로 성능을 측정해 확인하라고 한다(B12).
+- 연결 문자열은 `appsettings.json`(개발용은 `appsettings.Development.json`)에 두고 `GetConnectionString`으로 읽는다. 배포할 때 바꿀 수 있어야 하기 때문이다(Entity Framework Core in Action, Web API Development with ASP.NET Core 8).
+- `AddDbContext<T>`는 `DbContext`를 **Scoped**로 등록한다. 즉 한 HTTP 요청 안에서는 같은 인스턴스를 공유하고(여러 클래스에 주입해도 같은 것), 요청이 끝나면 Dispose된다. 그래서 여러 클래스가 한 작업을 나눠 하고 마지막에 `SaveChanges` 한 번으로 저장할 수 있다(Entity Framework Core in Action).
+- `DbContext`는 스레드에 안전하지 않다. 같은 인스턴스를 여러 작업(Task)이 동시에 쓰면 예외가 난다. 요청마다 새로 만드는 것이 이 문제도 해결한다(Entity Framework Core in Action).
+- 백그라운드 작업에서는 `IServiceScopeFactory`로 스코프를 직접 만들고 그 안에서 `DbContext`를 얻는다. 반복 실행이라면 매번 새 인스턴스를 써야 지난 실행의 데이터가 다음 실행에 영향을 주지 않는다(Entity Framework Core in Action).
+- async를 쓰면 DB를 기다리는 동안 스레드를 반납해 더 많은 동시 사용자를 처리한다. 동기 버전이 아주 약간 빠르지만 그 차이는 작아서, 책은 웹에서는 항상 async 사용이라는 Microsoft 지침을 따르라고 한다. async 메서드에는 취소 토큰(`CancellationToken`)을 선택적으로 넘길 수 있다(Entity Framework Core in Action).
+- 처리량이 매우 높을 때는 `AddDbContextPool`로 `DbContext` 인스턴스를 재사용할 수 있다(반납 시 상태를 초기화하며, 풀 크기 기본값은 1024). 하지만 대부분의 앱에는 필요 없고, 켜기 전후로 성능을 측정해 확인하라고 한다(Web API Development with ASP.NET Core 8).
 
 ```csharp
 using Microsoft.EntityFrameworkCore;
@@ -406,17 +400,17 @@ public class PlayerCounter(IServiceScopeFactory scopeFactory)
 
 ### 8. 동시성 충돌 (재화·아이템 동시 수정)
 
-> 📖 출처: B12 7장 "Understanding concurrency conflicts" (b12.txt L11744-11992)
+> 📖 출처: Web API Development with ASP.NET Core 8 7장 "Understanding concurrency conflicts" (텍스트 L11744-11992)
 
 **한 줄 요약**: 두 요청이 같은 행을 동시에 고치면 한쪽 결과가 조용히 사라지는데, 버전 열(동시성 토큰)로 이를 감지해 예외로 만든다.
 
 **핵심 설명**
-- 문제 상황(B12의 재고 예제): 재고 15개에서 클라이언트 A와 B가 거의 동시에 10개를 판다. 둘 다 "15개니까 충분하다"고 확인한 뒤 각자 `15 - 10 = 5`로 저장한다. 실제로는 20개를 팔았는데 재고는 5개가 되어 데이터가 틀어진다. 두 요청 모두 성공 응답을 받는다.
-- 해결 방식 두 가지(B12): **비관적 제어**는 DB 잠금으로 다른 클라이언트의 수정을 막는다. 잠금 관리 비용이 커서 동시 접속이 많으면 성능 문제가 생길 수 있고, EF Core는 이를 기본 지원하지 않는다. **낙관적 제어**는 잠금 없이 버전 열로 충돌을 감지한다. EF Core는 이쪽을 지원한다.
-- 낙관적 제어의 동작: EF Core가 `UPDATE ... WHERE Id = @id AND RowVersion = @원래값`을 보낸다. 그 사이 누가 고쳐서 버전 값이 달라졌다면 0행이 갱신되고 EF Core가 `DbUpdateConcurrencyException`을 던진다(B12는 SQL Server에서 이 WHERE 절을 확인했다).
+- 문제 상황(Web API Development with ASP.NET Core 8의 재고 예제): 재고 15개에서 클라이언트 A와 B가 거의 동시에 10개를 판다. 둘 다 "15개니까 충분하다"고 확인한 뒤 각자 `15 - 10 = 5`로 저장한다. 실제로는 20개를 팔았는데 재고는 5개가 되어 데이터가 틀어진다. 두 요청 모두 성공 응답을 받는다.
+- 해결 방식 두 가지(Web API Development with ASP.NET Core 8): **비관적 제어**는 DB 잠금으로 다른 클라이언트의 수정을 막는다. 잠금 관리 비용이 커서 동시 접속이 많으면 성능 문제가 생길 수 있고, EF Core는 이를 기본 지원하지 않는다. **낙관적 제어**는 잠금 없이 버전 열로 충돌을 감지한다. EF Core는 이쪽을 지원한다.
+- 낙관적 제어의 동작: EF Core가 `UPDATE ... WHERE Id = @id AND RowVersion = @원래값`을 보낸다. 그 사이 누가 고쳐서 버전 값이 달라졌다면 0행이 갱신되고 EF Core가 `DbUpdateConcurrencyException`을 던진다(Web API Development with ASP.NET Core 8은 SQL Server에서 이 WHERE 절을 확인했다).
 - 토큰 종류: (1) DB가 자동 관리하는 `rowversion`(SQL Server): `[Timestamp] byte[]` 또는 `IsRowVersion()`. 수정할 때 값을 직접 갱신할 필요가 없다. 다만 이 타입은 SQL Server용이며, SQLite 같은 다른 DB는 지원하지 않을 수 있으니 DB 문서를 확인해야 한다. (2) 앱이 관리하는 토큰: `[ConcurrencyCheck] Guid Version` 또는 `IsConcurrencyToken()`. SQL Server에서도 쓸 수 있지만 엔티티를 수정할 때마다 `Version = Guid.NewGuid()`처럼 새 값을 직접 넣어야 한다.
-- 충돌이 나면 예외를 잡아 로그를 남기고 `409 Conflict`를 돌려주어 클라이언트가 결과를 보고 다시 시도하게 한다(B12).
-- 격리 수준(SQL Server는 ReadUncommitted, ReadCommitted, RepeatableRead, Serializable, 기본은 ReadCommitted)은 높을수록 일관성이 좋지만 동시성이 떨어진다. 책은 이 정도만 소개하고 자세한 내용은 다루지 않는다(B12).
+- 충돌이 나면 예외를 잡아 로그를 남기고 `409 Conflict`를 돌려주어 클라이언트가 결과를 보고 다시 시도하게 한다(Web API Development with ASP.NET Core 8).
+- 격리 수준(SQL Server는 ReadUncommitted, ReadCommitted, RepeatableRead, Serializable, 기본은 ReadCommitted)은 높을수록 일관성이 좋지만 동시성이 떨어진다. 책은 이 정도만 소개하고 자세한 내용은 다루지 않는다(Web API Development with ASP.NET Core 8).
 
 ```csharp
 using Microsoft.EntityFrameworkCore;
@@ -449,23 +443,23 @@ public static class GoldSpender
 
 > 🔧 보충(책 외): 위 게임 시나리오(골드·보상 이중 처리)는 책의 재고 예제를 게임에 옮긴 해석이다. 또 다른 방법으로 `Where(p => p.Id == id && p.Gold >= cost).ExecuteUpdateAsync(...)`처럼 조건과 차감을 한 SQL로 처리해 반환된 행 수로 성공 여부를 판단할 수 있다(책은 ExecuteUpdate를 일괄 처리용으로만 소개하며 11절 참고).
 >
-> 🔧 보충(책 외, SQLite로 직접 실행해 확인): (1) 위 `Player`처럼 `[Timestamp] byte[]`만 붙이고 SQLite를 쓰면 `RowVersion`이 채워지지 않고(null) 쿼리가 `WHERE Id = @id AND RowVersion IS NULL`로 나가서, 두 요청이 같은 골드 100에서 70씩 차감해도 예외 없이 둘 다 성공하고 골드가 30이 됐다. 즉 이 방식은 SQL Server처럼 `rowversion`을 자동 관리하는 DB에서만 보호가 된다(SQL Server에서는 실행해 보지 못했고 B12의 설명을 따른 것이다). (2) 같은 실험을 `[ConcurrencyCheck] Guid Version`으로 하고 저장 전에 `Version = Guid.NewGuid()`를 넣었더니 두 번째 요청에서 `DbUpdateConcurrencyException`("expected to affect 1 row(s), but actually affected 0")이 났고 골드는 30으로 남았다. 반대로 `Version`을 새 값으로 바꾸지 않으면 충돌을 전혀 감지하지 못했다. (3) `Where(p => p.Id == id && p.Gold >= 70).ExecuteUpdateAsync(...)`를 두 번 연속 실행하니 갱신된 행이 각각 1, 0이었다(잔액 부족이면 0행). 이 방식은 추적 중인 엔티티에는 반영되지 않는다.
+> 🔧 보충(책 외, SQLite로 직접 실행해 확인): (1) 위 `Player`처럼 `[Timestamp] byte[]`만 붙이고 SQLite를 쓰면 `RowVersion`이 채워지지 않고(null) 쿼리가 `WHERE Id = @id AND RowVersion IS NULL`로 나가서, 두 요청이 같은 골드 100에서 70씩 차감해도 예외 없이 둘 다 성공하고 골드가 30이 됐다. 즉 이 방식은 SQL Server처럼 `rowversion`을 자동 관리하는 DB에서만 보호가 된다(SQL Server에서는 실행해 보지 못했고 Web API Development with ASP.NET Core 8의 설명을 따른 것이다). (2) 같은 실험을 `[ConcurrencyCheck] Guid Version`으로 하고 저장 전에 `Version = Guid.NewGuid()`를 넣었더니 두 번째 요청에서 `DbUpdateConcurrencyException`("expected to affect 1 row(s), but actually affected 0")이 났고 골드는 30으로 남았다. 반대로 `Version`을 새 값으로 바꾸지 않으면 충돌을 전혀 감지하지 못했다. (3) `Where(p => p.Id == id && p.Gold >= 70).ExecuteUpdateAsync(...)`를 두 번 연속 실행하니 갱신된 행이 각각 1, 0이었다(잔액 부족이면 0행). 이 방식은 추적 중인 엔티티에는 반영되지 않는다.
 
 ---
 
 ### 9. 트랜잭션
 
-> 📖 출처: B5 3장 사이드바 "Why you should call SaveChanges only once at the end of your changes" (b5.txt L4644-4666), B5 4장 "Using transactions to daisy-chain a sequence of business logic code" (b5.txt L7569-7831)
+> 📖 출처: Entity Framework Core in Action 3장 사이드바 "Why you should call SaveChanges only once at the end of your changes" (텍스트 L4644-4666), Entity Framework Core in Action 4장 "Using transactions to daisy-chain a sequence of business logic code" (텍스트 L7569-7831)
 
 **한 줄 요약**: 트랜잭션은 여러 DB 쓰기를 "모두 성공 아니면 모두 취소"로 묶는 장치다.
 
 **핵심 설명**
-- `SaveChanges` 한 번은 DB 트랜잭션 안에서 실행된다. 생성·수정·삭제가 섞여 있어도 DB가 하나라도 거부하면 전부 거부된다. 그래서 가능하면 `SaveChanges`를 끝에서 한 번만 부르는 것이 원칙이다(Unit of Work, B5).
-- 앞 단계가 저장한 값을 다음 단계가 읽어야 하는 등 여러 번 저장해야 하는데 전체를 하나로 묶고 싶으면 명시적 트랜잭션을 쓴다. `context.Database.BeginTransaction()`을 `using`으로 열면(B5):
+- `SaveChanges` 한 번은 DB 트랜잭션 안에서 실행된다. 생성·수정·삭제가 섞여 있어도 DB가 하나라도 거부하면 전부 거부된다. 그래서 가능하면 `SaveChanges`를 끝에서 한 번만 부르는 것이 원칙이다(Unit of Work, Entity Framework Core in Action).
+- 앞 단계가 저장한 값을 다음 단계가 읽어야 하는 등 여러 번 저장해야 하는데 전체를 하나로 묶고 싶으면 명시적 트랜잭션을 쓴다. `context.Database.BeginTransaction()`을 `using`으로 열면(Entity Framework Core in Action):
   - `Commit()` 전까지 쓰기는 다른 DB 사용자에게 보이지 않는다.
   - `Commit()` 없이 `using`이 끝나면 Dispose 때문에 자동으로 롤백된다. 롤백하면 그 트랜잭션 안의 쓰기는 모두 사라진다.
 - 책의 예(`RunnerTransact2WriteDb`)는 단계 1을 실행해 오류가 없으면 `SaveChanges`, 이어서 단계 2도 같은 방식으로 실행하고, 모두 오류가 없을 때만 `Commit`을 부른다. 오류가 있으면 그냥 빠져나가 롤백되게 한다. 각 단계의 로직은 자신이 트랜잭션 안에서 도는지 알 필요가 없다.
-- 단점(B5): DB 접근이 복잡해져 디버깅이 조금 어려워질 수 있고 트랜잭션이 성능 문제를 일으킬 수도 있다. 또 `EnableRetryOnFailure`(실패 시 재시도) 옵션을 쓴다면 비즈니스 로직이 여러 번 호출될 수 있음을 고려해야 한다.
+- 단점(Entity Framework Core in Action): DB 접근이 복잡해져 디버깅이 조금 어려워질 수 있고 트랜잭션이 성능 문제를 일으킬 수도 있다. 또 `EnableRetryOnFailure`(실패 시 재시도) 옵션을 쓴다면 비즈니스 로직이 여러 번 호출될 수 있음을 고려해야 한다.
 
 ```csharp
 using Microsoft.EntityFrameworkCore;
@@ -500,18 +494,18 @@ public static class GoldTransfer
 
 ### 10. 마이그레이션
 
-> 📖 출처: B5 2장 "Creating a database for your own application" (b5.txt L3092-3157), B5 5장 "Using EF Core's migration feature to change the database's structure" (b5.txt L9068-9295), B5 9장 "Understanding the complexities of changing your application's database" (b5.txt L15583-15661), B5 9장 스냅샷 설명 (b5.txt L15721-15777), B12 5장 "Creating the database" (b12.txt L8837-8906), B1 12장 "Managing changes with migrations" (b1.txt L15478-15625)
+> 📖 출처: Entity Framework Core in Action 2장 "Creating a database for your own application" (텍스트 L3092-3157), Entity Framework Core in Action 5장 "Using EF Core's migration feature to change the database's structure" (텍스트 L9068-9295), Entity Framework Core in Action 9장 "Understanding the complexities of changing your application's database" (텍스트 L15583-15661), Entity Framework Core in Action 9장 스냅샷 설명 (텍스트 L15721-15777), Web API Development with ASP.NET Core 8 5장 "Creating the database" (텍스트 L8837-8906), ASP.NET Core in Action 12장 "Managing changes with migrations" (텍스트 L15478-15625)
 
 **한 줄 요약**: 마이그레이션은 C# 모델의 변경 이력을 코드 파일로 남겨 DB 구조를 코드와 맞추는 기능이다.
 
 **핵심 설명**
-- DB에는 데이터가 있어서 배포할 때마다 DB를 통째로 갈아엎을 수 없다. 그래서 스키마 변경을 코드와 함께 버전으로 관리하는 것이 좋은 관행이다. EF Core의 방식이 마이그레이션이며, 데이터 모델이 어떻게 바뀌었는지 기록하는 C# 코드 파일이다(B1).
-- 흐름(B12): (1) `dotnet tool install --global dotnet-ef` (2) `dotnet ef migrations add 이름`으로 `Up()`/`Down()`이 든 마이그레이션 파일 생성. 이 시점엔 DB가 바뀌지 않는다 (3) `dotnet ef database update`로 DB에 적용. 적용 이력은 `__EFMigrationsHistory` 테이블에 기록되며 직접 수정하지 않는다. `database update`는 앱을 빌드하고, 연결 문자열의 DB가 없으면 만들고, 아직 적용되지 않은 마이그레이션을 적용한다(B1). 생성된 마이그레이션 파일은 적용 전에 열어서 무슨 일을 하는지 확인하라고 권한다(B1).
-- `add`는 현재 모델과 마지막 마이그레이션 때 저장된 스냅샷(`...ModelSnapshot.cs`)을 비교해 차이를 코드로 만든다. 스냅샷 덕분에 DB에 직접 접속하지 않아도 이전 상태를 알 수 있다(B5, B1).
-- 마이그레이션 파일을 함부로 수정·삭제하면 안 된다. 되돌리려면 `dotnet ef migrations remove`를 쓴다(B12). 복잡한 변경(데이터가 사라지는 변경 등)은 표준 마이그레이션을 검토한 뒤 직접 고쳐야 할 때가 있다(B5).
-- 컬럼·테이블 삭제 같은 변경은 데이터를 잃을 수 있다. 롤백해도 테이블은 다시 만들어지지만 지워진 데이터는 영영 돌아오지 않는다(B1, B5).
-- 운영 DB에 적용하는 방법(B5): 앱 시작 시 `Database.Migrate()` 호출, CI/CD에서 적용, 별도 앱으로 적용, SQL 스크립트 추출 후 적용. 가장 쉬운 것이 시작 시 적용이다. 배포하면 새 앱이 시작될 때 자동으로 적용되어 잊을 일이 없지만, 서버를 여러 대로 늘리는 환경(scaling out)에는 맞지 않는 한계가 있다. B5는 Microsoft가 SQL 명령으로 운영 DB를 갱신하는 방식을 가장 견고하다고 권한다고 밝힌다. 시작 시 마이그레이션에서 행이 수만 개인 데이터를 EF Core로 갱신하다가 앱 시작이 너무 늦어 Azure가 타임아웃시킨 사례도 소개한다.
-- 시작 시 마이그레이션 코드는 예외가 나면 로그를 남기고 다시 던져(`throw`) 앱이 계속 뜨지 않게 하는 것이 책의 예다(B5). 시드 데이터는 마이그레이션(`HasData`)으로 넣거나 마이그레이션 뒤 코드로 넣을 수 있다(B5).
+- DB에는 데이터가 있어서 배포할 때마다 DB를 통째로 갈아엎을 수 없다. 그래서 스키마 변경을 코드와 함께 버전으로 관리하는 것이 좋은 관행이다. EF Core의 방식이 마이그레이션이며, 데이터 모델이 어떻게 바뀌었는지 기록하는 C# 코드 파일이다(ASP.NET Core in Action).
+- 흐름(Web API Development with ASP.NET Core 8): (1) `dotnet tool install --global dotnet-ef` (2) `dotnet ef migrations add 이름`으로 `Up()`/`Down()`이 든 마이그레이션 파일 생성. 이 시점엔 DB가 바뀌지 않는다 (3) `dotnet ef database update`로 DB에 적용. 적용 이력은 `__EFMigrationsHistory` 테이블에 기록되며 직접 수정하지 않는다. `database update`는 앱을 빌드하고, 연결 문자열의 DB가 없으면 만들고, 아직 적용되지 않은 마이그레이션을 적용한다(ASP.NET Core in Action). 생성된 마이그레이션 파일은 적용 전에 열어서 무슨 일을 하는지 확인하라고 권한다(ASP.NET Core in Action).
+- `add`는 현재 모델과 마지막 마이그레이션 때 저장된 스냅샷(`...ModelSnapshot.cs`)을 비교해 차이를 코드로 만든다. 스냅샷 덕분에 DB에 직접 접속하지 않아도 이전 상태를 알 수 있다(Entity Framework Core in Action, ASP.NET Core in Action).
+- 마이그레이션 파일을 함부로 수정·삭제하면 안 된다. 되돌리려면 `dotnet ef migrations remove`를 쓴다(Web API Development with ASP.NET Core 8). 복잡한 변경(데이터가 사라지는 변경 등)은 표준 마이그레이션을 검토한 뒤 직접 고쳐야 할 때가 있다(Entity Framework Core in Action).
+- 컬럼·테이블 삭제 같은 변경은 데이터를 잃을 수 있다. 롤백해도 테이블은 다시 만들어지지만 지워진 데이터는 영영 돌아오지 않는다(ASP.NET Core in Action, Entity Framework Core in Action).
+- 운영 DB에 적용하는 방법(Entity Framework Core in Action): 앱 시작 시 `Database.Migrate()` 호출, CI/CD에서 적용, 별도 앱으로 적용, SQL 스크립트 추출 후 적용. 가장 쉬운 것이 시작 시 적용이다. 배포하면 새 앱이 시작될 때 자동으로 적용되어 잊을 일이 없지만, 서버를 여러 대로 늘리는 환경(scaling out)에는 맞지 않는 한계가 있다. Entity Framework Core in Action은 Microsoft가 SQL 명령으로 운영 DB를 갱신하는 방식을 가장 견고하다고 권한다고 밝힌다. 시작 시 마이그레이션에서 행이 수만 개인 데이터를 EF Core로 갱신하다가 앱 시작이 너무 늦어 Azure가 타임아웃시킨 사례도 소개한다.
+- 시작 시 마이그레이션 코드는 예외가 나면 로그를 남기고 다시 던져(`throw`) 앱이 계속 뜨지 않게 하는 것이 책의 예다(Entity Framework Core in Action). 시드 데이터는 마이그레이션(`HasData`)으로 넣거나 마이그레이션 뒤 코드로 넣을 수 있다(Entity Framework Core in Action).
 
 ```bash
 dotnet tool install --global dotnet-ef
@@ -542,16 +536,16 @@ public static class DbMigrationExtensions
 
 ### 11. 추적 vs 비추적 쿼리, IQueryable, 일괄 업데이트
 
-> 📖 출처: B12 7장 "Understanding the difference between tracking versus no-tracking queries" / "IQueryable and IEnumerable" / "Client evaluation versus server evaluation" / "Using bulk operations" (b12.txt L11257-11742), B5 2장 "The two types of database queries" (b5.txt L3234-3258)
+> 📖 출처: Web API Development with ASP.NET Core 8 7장 "Understanding the difference between tracking versus no-tracking queries" / "IQueryable and IEnumerable" / "Client evaluation versus server evaluation" / "Using bulk operations" (텍스트 L11257-11742), Entity Framework Core in Action 2장 "The two types of database queries" (텍스트 L3234-3258)
 
 **한 줄 요약**: 읽기만 할 때는 `AsNoTracking`, 필터는 DB에서 실행되도록 `IQueryable` 상태로, 대량 변경은 `ExecuteUpdate`로 처리한다.
 
 **핵심 설명**
-- **추적 쿼리(기본)**: 읽어 온 엔티티를 `DbContext`가 추적해서 수정하고 저장할 수 있다. 대신 메모리와 시간이 든다. 같은 키를 `Find`로 다시 찾으면 DB에 안 가고 추적 중인 객체를 돌려준다. 그래서 `ExecuteUpdate` 같은 추적 밖의 변경이 있었다면 `Find`가 옛 값을 돌려줄 수 있고, 이때는 `Single`/`SingleOrDefault`로 DB에서 다시 읽는다(B12).
-- **비추적 쿼리**: `AsNoTracking()`을 붙이면 더 빠르고 가볍지만, 그 엔티티는 수정해도 `SaveChanges`에 반영되지 않는다. 수정할 일이 없는 GET 조회에 적합하다. 전체 기본값을 바꾸려면 `UseQueryTrackingBehavior(NoTracking)`을 쓰고, 필요한 쿼리만 `AsTracking()`으로 되돌린다(B12).
-- **IQueryable vs IEnumerable**: `IQueryable`인 동안에는 `Where`, `OrderBy`, `Skip`, `Take`가 SQL로 합쳐져 DB에서 실행된다. `AsEnumerable()`을 먼저 부르면 전체를 메모리로 가져온 뒤 C#에서 걸러 매우 비효율적이다(B12는 로그로 `ORDER BY`/`OFFSET`이 빠진 SQL을 보여 준다). `ToList`/`ToArray`, `Single`, `First`, `Count`, `foreach`가 쿼리를 즉시 실행한다(B12).
-- **서버 vs 클라이언트 평가**: DB로 번역되는 부분(서버 평가)이 기본이다. 사용자 정의 C# 메서드는 번역되지 않으므로 마지막 `Select` 정도에만 쓰고, `Where`에 쓰면 EF Core 3.0 이후로는 예외가 난다. 데이터가 적어 안전하다고 확신할 때만 `AsEnumerable()`/`ToList()`로 명시적으로 클라이언트 평가를 한다(B12, B5).
-- **일괄 업데이트(EF Core 7+)**: `ExecuteUpdate`/`ExecuteDelete`는 엔티티를 불러오지 않고 한 번의 SQL로 여러 행을 바꾼다. 추적을 거치지 않으므로 `SaveChanges`가 필요 없이 즉시 실행되고, 이미 로드된 객체는 옛 값 그대로라는 점에 주의한다(B12). 문자열로 SQL을 쓰는 `ExecuteSql`과 달리 강한 타입 지원이 있다. 원시 SQL은 `FromSql`처럼 보간 문자열이면 매개변수화되어 SQL 인젝션에서 안전하지만, `...Raw` 계열은 개발자가 직접 책임져야 한다(B12).
+- **추적 쿼리(기본)**: 읽어 온 엔티티를 `DbContext`가 추적해서 수정하고 저장할 수 있다. 대신 메모리와 시간이 든다. 같은 키를 `Find`로 다시 찾으면 DB에 안 가고 추적 중인 객체를 돌려준다. 그래서 `ExecuteUpdate` 같은 추적 밖의 변경이 있었다면 `Find`가 옛 값을 돌려줄 수 있고, 이때는 `Single`/`SingleOrDefault`로 DB에서 다시 읽는다(Web API Development with ASP.NET Core 8).
+- **비추적 쿼리**: `AsNoTracking()`을 붙이면 더 빠르고 가볍지만, 그 엔티티는 수정해도 `SaveChanges`에 반영되지 않는다. 수정할 일이 없는 GET 조회에 적합하다. 전체 기본값을 바꾸려면 `UseQueryTrackingBehavior(NoTracking)`을 쓰고, 필요한 쿼리만 `AsTracking()`으로 되돌린다(Web API Development with ASP.NET Core 8).
+- **IQueryable vs IEnumerable**: `IQueryable`인 동안에는 `Where`, `OrderBy`, `Skip`, `Take`가 SQL로 합쳐져 DB에서 실행된다. `AsEnumerable()`을 먼저 부르면 전체를 메모리로 가져온 뒤 C#에서 걸러 매우 비효율적이다(Web API Development with ASP.NET Core 8은 로그로 `ORDER BY`/`OFFSET`이 빠진 SQL을 보여 준다). `ToList`/`ToArray`, `Single`, `First`, `Count`, `foreach`가 쿼리를 즉시 실행한다(Web API Development with ASP.NET Core 8).
+- **서버 vs 클라이언트 평가**: DB로 번역되는 부분(서버 평가)이 기본이다. 사용자 정의 C# 메서드는 번역되지 않으므로 마지막 `Select` 정도에만 쓰고, `Where`에 쓰면 EF Core 3.0 이후로는 예외가 난다. 데이터가 적어 안전하다고 확신할 때만 `AsEnumerable()`/`ToList()`로 명시적으로 클라이언트 평가를 한다(Web API Development with ASP.NET Core 8, Entity Framework Core in Action).
+- **일괄 업데이트(EF Core 7+)**: `ExecuteUpdate`/`ExecuteDelete`는 엔티티를 불러오지 않고 한 번의 SQL로 여러 행을 바꾼다. 추적을 거치지 않으므로 `SaveChanges`가 필요 없이 즉시 실행되고, 이미 로드된 객체는 옛 값 그대로라는 점에 주의한다(Web API Development with ASP.NET Core 8). 문자열로 SQL을 쓰는 `ExecuteSql`과 달리 강한 타입 지원이 있다. 원시 SQL은 `FromSql`처럼 보간 문자열이면 매개변수화되어 SQL 인젝션에서 안전하지만, `...Raw` 계열은 개발자가 직접 책임져야 한다(Web API Development with ASP.NET Core 8).
 
 ```csharp
 using Microsoft.EntityFrameworkCore;
