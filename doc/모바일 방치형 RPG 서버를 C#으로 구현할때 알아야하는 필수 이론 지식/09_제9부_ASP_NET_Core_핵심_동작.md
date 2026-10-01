@@ -1,3 +1,9 @@
+---
+title: "제9부. ASP.NET Core 핵심 동작"
+parent: "C# 방치형 RPG 서버 필수 이론"
+nav_order: 9
+---
+
 # 제9부. ASP.NET Core 핵심 동작
 
 > 학습 목표

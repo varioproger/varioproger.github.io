@@ -1,3 +1,10 @@
+---
+title: "한 권으로 보기"
+parent: "C# 방치형 RPG 서버 필수 이론"
+nav_order: 99
+search_exclude: true
+---
+
 # 모바일 방치형 RPG 서버를 위한 C# 필수 이론서
 
 C#으로 HTTP 웹 백엔드(모바일 방치형 RPG 게임 서버)를 처음 만드는 사람이 알아야 할 선수 지식을, 폴더 안의 C#/.NET/ASP.NET Core 책 11권 원문을 근거로 정리한 책입니다.

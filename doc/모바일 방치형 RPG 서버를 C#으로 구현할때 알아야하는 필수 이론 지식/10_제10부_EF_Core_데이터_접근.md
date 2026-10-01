@@ -1,3 +1,9 @@
+---
+title: "제10부. 데이터 접근 (EF Core)"
+parent: "C# 방치형 RPG 서버 필수 이론"
+nav_order: 10
+---
+
 # 제10부. 데이터 접근 (EF Core)
 
 **학습 목표**
