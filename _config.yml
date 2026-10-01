@@ -20,6 +20,10 @@ exclude:
 # 문서 본문의 {{ }} / {% %} 가 Liquid 로 해석되지 않도록 한다
 defaults:
   - scope:
+      path: ""
+    values:
+      layout: default
+  - scope:
       path: "doc"
     values:
       render_with_liquid: false
