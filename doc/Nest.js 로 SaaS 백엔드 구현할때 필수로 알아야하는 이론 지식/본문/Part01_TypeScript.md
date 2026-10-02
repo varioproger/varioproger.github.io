@@ -71,6 +71,7 @@ function asNumberOk(val: number | string): number {
 ### 2. 컴파일러 설정: tsconfig의 strict
 
 #### 2.1 세 가지 핵심 옵션
+
 | 옵션 | 하는 일 | 안 켜면 |
 |---|---|---|
 | `noImplicitAny` | 타입을 못 정한 변수/파라미터를 오류로 표시 | 조용히 `any`가 되어 검사 무력화 |
