@@ -1,3 +1,9 @@
+---
+title: "Part 07. Kubernetes 아키텍처 · CNI(Calico) · Pod · Service 구축 순서"
+parent: "Docker·K8s 인프라 구축 실습 순서"
+nav_order: 7
+---
+
 # Part 07. Kubernetes 아키텍처 · CNI(Calico) · Pod · Service 구축 순서
 
 > 출처: Kubernetes 기초&심화 (CKA&CKAD) CH04(아키텍처 이해) ~ CH05(Pod 생성과 관리) ~ CH06(Pod 네트워킹을 위한 Service) 자료 064~082
@@ -761,7 +767,7 @@ kubectl delete po mysql57-pod
 # mysql-pod.yaml 에 추가한 env
       env:
       - name: MYSQL_ROOT_PASSWORD
-        value: "k8spass#"
+        value: "<PASSWORD>"
 ```
 ```bash
 kubectl apply -f mysql-pod.yaml

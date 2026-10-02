@@ -1,3 +1,9 @@
+---
+title: "Part 02. Docker 이미지 관리 · 컨테이너 CLI · 네트워크 · Proxy"
+parent: "Docker·K8s 인프라 구축 실습 순서"
+nav_order: 2
+---
+
 # Part 02. Docker 이미지 관리 · 컨테이너 CLI · 네트워크 · Proxy
 
 > 출처: Docker 컨테이너 빌드업! ch4(이미지 관리) / ch5(컨테이너 운용 CLI) / ch6(Docker network) 자료 027~039.
@@ -780,7 +786,7 @@ docker logs mydb
 #   You need to specify one of the following as an environment variable:
 #   - MYSQL_ROOT_PASSWORD / - MYSQL_ALLOW_EMPTY_PASSWORD / - MYSQL_RANDOM_ROOT_PASSWORD
 docker rm mydb
-docker run -itd --name=mydb -e MYSQL_ROOT_PASSWORD=pass123# mysql:5.7-debian
+docker run -itd --name=mydb -e MYSQL_ROOT_PASSWORD=<PASSWORD> mysql:5.7-debian
 docker ps -a | grep mydb         # Up
 ```
 - (자료의 비밀번호는 실습용 예시 값. 실제 환경에서는 안전한 값 사용.)

@@ -1,7 +1,13 @@
+---
+title: "Part 01. Docker 기초 환경 구축"
+parent: "Docker·K8s 인프라 구축 실습 순서"
+nav_order: 1
+---
+
 # Part 01. Docker 기초 환경 구축 (컨테이너 개념 → VirtualBox/Ubuntu → Docker 엔진 → Portainer → 엔진 업데이트 → Docker CLI 1)
 
 > 출처: 초격자 패키지 Online "Docker 컨테이너 빌드업" ch1~ch3 강의 요약 PDF 및 "컨테이너 관리를 위한 Docker CLI (1)".
-> 실습 환경 값(계정 kevin, 호스트명 hostos1, IP 192.168.56.101 등)은 모두 강의 예시값이며, 강의에서도 "교육용 예시"라고 밝힌 값이다. 비밀번호(예: pass123#)는 실제 운영 서버에서 절대 쓰지 말 것(강의 설명).
+> 실습 환경 값(계정 kevin, 호스트명 hostos1, IP 192.168.56.101 등)은 모두 강의 예시값이며, 강의에서도 "교육용 예시"라고 밝힌 값이다. 비밀번호(예: <PASSWORD>)는 실제 운영 서버에서 절대 쓰지 말 것(강의 설명).
 > 실제 구축 순서에 맞게 재배열했다.
 
 ## 전체 구축 순서 한눈에 보기
@@ -288,7 +294,7 @@ OS 디스크(sda)와 Docker 전용 디스크(sdb)를 분리 파티셔닝하여 U
   - sda3: Ext4, `/DATA` (데이터용). sda4: 남은 용량 Ext4, `/BACKUP` (백업용).
   - **sdb1 (가장 중요)**: sdb 전체, XFS, 마운트 지점 `/var/lib/docker` — Docker 전용 영역(OS와 분리해 성능 보장; 강사: "반드시 분리하는 것을 권장").
 - 부트로더는 `/dev/sda`에 설치. 마지막에 Install Now.
-- 계정(강의 예시): Your name/username = `kevin`, computer's name(hostname) = `hostos1`, 비밀번호 `pass123#`(강의용 — 실제 서버에 쓰지 말 것), "Require my password to log in". 기본 계정과 hostname은 되도록 동일하게. 설치 때 만든 계정은 **sudo(root 역할) 권한**을 가진다.
+- 계정(강의 예시): Your name/username = `kevin`, computer's name(hostname) = `hostos1`, 비밀번호 `<PASSWORD>`(강의용 — 실제 서버에 쓰지 말 것), "Require my password to log in". 기본 계정과 hostname은 되도록 동일하게. 설치 때 만든 계정은 **sudo(root 역할) 권한**을 가진다.
 
 ### [사용한 CLI]
 GUI 설치 마법사 절차:
@@ -1238,7 +1244,7 @@ kevin@hostos1:~/fastcampus/ch05$ docker logs mydb
 
 # 환경변수(-e)를 넣어 다시 실행 (강의 예시 비밀번호는 교육용)
 kevin@hostos1:~/fastcampus/ch05$ docker rm mydb
-kevin@hostos1:~/fastcampus/ch05$ docker run -itd --name=mydb -e MYSQL_ROOT_PASSWORD=pass123# mysql:5.7-debian
+kevin@hostos1:~/fastcampus/ch05$ docker run -itd --name=mydb -e MYSQL_ROOT_PASSWORD=<PASSWORD> mysql:5.7-debian
 kevin@hostos1:~/fastcampus/ch05$ docker ps -a | grep mydb      # Up 2 seconds, 3306/tcp, 33060/tcp
 ```
 

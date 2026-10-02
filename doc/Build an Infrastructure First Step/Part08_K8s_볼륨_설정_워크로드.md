@@ -1,3 +1,9 @@
+---
+title: "Part 08. Kubernetes 볼륨 · 설정(ConfigMap/Secret) · 워크로드 리소스"
+parent: "Docker·K8s 인프라 구축 실습 순서"
+nav_order: 8
+---
+
 # Part 08. Kubernetes 볼륨 · 설정(ConfigMap/Secret) · 워크로드 리소스
 
 > 출처: Kubernetes 기초&심화 (CKA&CKAD) CH07 (Pod Volume mount), CH08 (Pod 환경구성 object), CH09 (Pod workload resources). 실습 환경은 kubeadm 기반 클러스터(k8s-master, k8s-node1~3, 컨테이너 런타임 containerd)이며 마지막 일부 데모는 Amazon EKS이다.
@@ -1044,7 +1050,7 @@ kubectl delete -f eks-storage.yaml     # PV/PVC 삭제 (EBS 볼륨 자체는 남
 - **ConfigMap 생성** : 값을 주는 방법 `--from-literal`, `--from-file`, `--from-env-file`(자세한 형식은 다음 클립). `--from-literal` 뒤 `=` 대신 공백도 가능. `describe cm` 의 Data 에 값이 그대로 보이는 것은 인코딩/암호화되지 않은 **평문(plain text) 저장**이기 때문.
 - **envFrom / configMapRef** : ConfigMap 을 만든 것만으로는 아무 일도 일어나지 않고, Pod YAML 에 "이 ConfigMap 에서 환경 변수를 가져와라"를 추가해야 한다. `envFrom` = 환경 변수를 어디로부터 가져올 것인가, `configMapRef` = ConfigMap 참조, 그 아래 `name` 에 ConfigMap 이름. ConfigMap 의 key-value 가 컨테이너 환경 변수로 자동 주입된다(환경 변수를 넣는 방법은 3가지 — 나머지는 다음 클립). 코드는 그대로이고 object 만으로 값이 주입된다는 것이 핵심. (vi 편집 시 `dry-run` 으로 생성된 `dnsPolicy`, `restartPolicy`, `status: {}` 등 필요 없는 부분은 정리하고 작성.)
 - **수정 반영** : `kubectl edit configmaps` 로 ConfigMap 을 바꾸는 것은 가능하지만 `envFrom` 방식은 **실행 중인 Pod 에 반영되지 않는다.** 반영하려면 Pod 를 다시 만들어야 하며 `kubectl replace --force -f <pod.yaml>` 은 Pod 를 강제 삭제 후 재생성(슬라이드 주석 "강제 재시작")한다. 강사: 이렇게 강제 재시작이 필요한 것은 **이 방식의 한계**이며 뒤 클립에서 더 유연한 방법을 설명. (보충: 환경 변수는 컨테이너 시작 시 한 번 값이 정해져 프로세스에 전달되므로.)
-- **전달 과정 (슬라이드)** : ConfigMap(key API_KEY, value k8spass#) → Pod(`envFrom: - configMapRef: name: api-key`, kubelet 에 의해 적용) → Node.js 앱(`process.env.API_KEY`) → Result(noKey → "API_KEY is not ~", yesKey → "Welcome to ~"). ConfigMap/Secret 을 Pod 와 분리해 만들면 다른 Pod/다른 환경에서도 같은 object 를 가져다 쓸 수 있고, 환경마다 다른 값은 코드 수정 없이 개별 object 로 전달하는 것이 좋다.
+- **전달 과정 (슬라이드)** : ConfigMap(key API_KEY, value <PASSWORD>) → Pod(`envFrom: - configMapRef: name: api-key`, kubelet 에 의해 적용) → Node.js 앱(`process.env.API_KEY`) → Result(noKey → "API_KEY is not ~", yesKey → "Welcome to ~"). ConfigMap/Secret 을 Pod 와 분리해 만들면 다른 Pod/다른 환경에서도 같은 object 를 가져다 쓸 수 있고, 환경마다 다른 값은 코드 수정 없이 개별 object 로 전달하는 것이 좋다.
 
 ## [사용한 CLI]
 
@@ -1167,7 +1173,7 @@ ConfigMap 을 3가지 방식으로 만들고(`--from-literal`, `--from-file`, `-
 kubectl api-resources | grep configmap      # 리소스 종류/short name(cm) 확인 (선언형 작성 전)
 kubectl explain configmap
 kubectl create --help                       # Available Commands 에 configmap, secret 등 생성 가능 object 목록
-kubectl create configmap api-key --from-literal=API_KEY=k8spass#
+kubectl create configmap api-key --from-literal=API_KEY=<PASSWORD>
 kubectl get cm
 kubectl describe cm api-key
 ```
@@ -1198,14 +1204,14 @@ spec:
 kubectl apply -f cmtest-pod.yaml
 kubectl get po,svc -o wide | grep cmtest
 curl <Pod IP>:8000                                   # Welcome to fastcampus Kubernetes~! by kevin.
-kubectl exec -it cmtest-pod -- env | grep -i api_key # API_KEY=k8spass#
+kubectl exec -it cmtest-pod -- env | grep -i api_key # API_KEY=<PASSWORD>
 ```
 
 ### 8-3. ConfigMap 변경과 Pod 반영 (환경변수 방식)
 ```bash
 kubectl edit configmaps api-key              # API_KEY 를 k8s123# 로 수정
 kubectl describe cm api-key                  # Data 는 k8s123#
-kubectl exec -it cmtest-pod -- env | grep -i api_key   # 여전히 k8spass# (Pod 미반영)
+kubectl exec -it cmtest-pod -- env | grep -i api_key   # 여전히 <PASSWORD> (Pod 미반영)
 kubectl replace --force -f ./cmtest-pod.yaml # Pod 재생성 → API_KEY=k8s123# 반영
 ```
 
@@ -1634,7 +1640,7 @@ spec:
 | generic | "Opaque secret type". 로컬 파일·디렉터리·리터럴 값으로 생성하는 일반적인 방법 (이번 클립 주로 사용) |
 | tls | TLS 인증서와 연관된 키(공개키·비밀키) 저장 (TYPE `kubernetes.io/tls`, 다음 클립 고급 Secret 에서) |
 
-- **조회 결과** : `kubectl get secrets` 는 TYPE `Opaque`(불투명한 — Base64 로 값을 가려 저장했다는 의도), DATA 개수. `describe` 는 ConfigMap 과 달리 평문 값이 나오지 않고 키 이름과 크기만(`mypwd: 8 bytes`, k8spass# = 8글자). 인코딩 값은 `-o yaml` 또는 `--dry-run=client -o yaml`(creationTimestamp null)로 확인할 수 있는데 이 값도 Base64 로 즉시 디코딩되므로 k8spass# 가 너무 쉽게 노출된다는 것이 강사의 결론. ConfigMap·Secret 은 둘 다 Pod 구성값용이라 from-file, 볼륨, valueFrom/keyRef 기법이 동일하게 제공된다. YAML 은 처음부터 쓰지 말고 `kubectl run --dry-run` 으로 뼈대를 만들어 수정(강사 조언).
+- **조회 결과** : `kubectl get secrets` 는 TYPE `Opaque`(불투명한 — Base64 로 값을 가려 저장했다는 의도), DATA 개수. `describe` 는 ConfigMap 과 달리 평문 값이 나오지 않고 키 이름과 크기만(`mypwd: 8 bytes`, <PASSWORD> = 8글자). 인코딩 값은 `-o yaml` 또는 `--dry-run=client -o yaml`(creationTimestamp null)로 확인할 수 있는데 이 값도 Base64 로 즉시 디코딩되므로 <PASSWORD> 가 너무 쉽게 노출된다는 것이 강사의 결론. ConfigMap·Secret 은 둘 다 Pod 구성값용이라 from-file, 볼륨, valueFrom/keyRef 기법이 동일하게 제공된다. YAML 은 처음부터 쓰지 말고 `kubectl run --dry-run` 으로 뼈대를 만들어 수정(강사 조언).
 - **적용 방식 3가지 (ConfigMap 과 필드 이름만 다름)** : ① `envFrom: - secretRef: name:`(Secret 의 모든 key 가 환경변수, 이름 = key 이름), ② 볼륨 마운트 `volumes.secret.secretName` + `volumeMounts.mountPath: /secrets`(키마다 파일(심볼릭 링크) 생성, **내용은 인코딩이 아닌 디코딩된 값**), ③ `env.valueFrom.secretKeyRef`(`name`, `key` — 원하는 key 만 골라 원하는 환경변수 이름으로). 강사: Pod 뿐 아니라 상위 오브젝트인 Deployment, StatefulSet 에도 동일하게 적용 가능.
 - **ConfigMap + Secret 동시 적용 2가지** : (a) `envFrom` 아래에 `configMapRef` 와 `secretRef` 를 나란히, (b) `--from-file` 로 만든 ConfigMap/Secret 을 `configMapKeyRef`/`secretKeyRef` 로 연결(`--from-file` 은 파일 이름이 key, 파일 내용이 value 가 되며 특정 값만 취하는 keyRef 기법과 함께 많이 쓰임). `envFrom` 은 환경변수 이름 = 키 이름, `*KeyRef` 는 새 이름(K8S_ENV, WEB_DB_CONN)을 붙일 수 있다.
 - busybox 이미지는 상주 프로세스가 없어 바로 종료되므로 `args: ['tail', '-f', '/dev/null']` 로 계속 동작하게 만든다(실습용). LAB2 에서 `--from-literal` 을 4번 썼지만 `--from-file`/`--from-env-file` 로 바꿔도 된다(강사: 그런 생각도 해 보라).
@@ -1651,12 +1657,12 @@ kubectl create secret -h              # docker-registry / generic / tls
 
 ### 10-2. generic Secret 생성/조회
 ```bash
-kubectl create secret generic my-pwd --from-literal=mypwd=k8spass#
+kubectl create secret generic my-pwd --from-literal=mypwd=<PASSWORD>
 kubectl get secrets my-pwd                      # TYPE Opaque, DATA 1
 kubectl describe secrets my-pwd                 # mypwd: 8 bytes
-kubectl get secrets my-pwd -o yaml              # data.mypwd: azhzcGFzcyM=
-kubectl create secret generic my-pwd --from-literal=mypwd=k8spass# --dry-run=client -o yaml
-echo azhzcGFzcyM= | base64 -d                   # k8spass#
+kubectl get secrets my-pwd -o yaml              # data.mypwd: <BASE64_ENCODED_PASSWORD>
+kubectl create secret generic my-pwd --from-literal=mypwd=<PASSWORD> --dry-run=client -o yaml
+echo <BASE64_ENCODED_PASSWORD> | base64 -d                   # <PASSWORD>
 ```
 
 ### 10-3. [LAB1] envFrom + secretRef (secret-pod1.yaml)
@@ -1677,16 +1683,16 @@ spec:
 ```bash
 kubectl apply -f secret-pod1.yaml
 kubectl get po | grep secret-pod
-kubectl exec secret-pod -- env | grep -i mypwd      # mypwd=k8spass#
+kubectl exec secret-pod -- env | grep -i mypwd      # mypwd=<PASSWORD>
 ```
 
 ### 10-4. [LAB2] 웹/DB 설정 Secret (web-db-secret) 와 3가지 주입
 ```bash
 kubectl create secret generic web-db-secret \
---from-literal=rootpw=k8spwd \
+--from-literal=rootpw=<PASSWORD> \
 --from-literal=database=fastcampusdb \
 --from-literal=user=k8suser \
---from-literal=password=k8spass#
+--from-literal=password=<PASSWORD>
 kubectl describe secret web-db-secret          # Type: Opaque, 각 key 의 bytes 수만 표시
 kubectl get secrets web-db-secret -o yaml
 ```
@@ -1711,7 +1717,7 @@ spec:
 ```bash
 kubectl apply -f web-db-secret-pod1.yaml
 kubectl get po -o wide | grep web-db
-kubectl exec -it web-db-secret-pod1 -- env | grep rootpw      # rootpw=k8spwd
+kubectl exec -it web-db-secret-pod1 -- env | grep rootpw      # rootpw=<PASSWORD>
 kubectl exec -it web-db-secret-pod1 -- env | grep database    # database=fastcampusdb
 ```
 
@@ -1771,7 +1777,7 @@ spec:
 ```
 ```bash
 kubectl apply -f web-db-secret-pod3.yaml
-kubectl exec -it web-db-secret-pod3 -- env | grep ROOT_PASSWORD   # ROOT_PASSWORD=k8spwd
+kubectl exec -it web-db-secret-pod3 -- env | grep ROOT_PASSWORD   # ROOT_PASSWORD=<PASSWORD>
 kubectl exec -it web-db-secret-pod3 -- env | grep DATABASE_NAME   # DATABASE_NAME=fastcampusdb
 ```
 
@@ -1802,7 +1808,7 @@ kubectl exec -it conf-sec-pod1 -- env      # orchestrator, runtime(ConfigMap) + 
 ### 10-6. [LAB3] from-file + keyRef (conf-sec-pod2)
 ```bash
 vi k8s-env-cm.txt        # 내용: containerd
-vi web-db-sec.txt        # 내용: k8spwd
+vi web-db-sec.txt        # 내용: <PASSWORD>
 kubectl create configmap k8s-env-cm --from-file=./k8s-env-cm.txt
 kubectl create secret generic web-db-sec --from-file=web-db-sec.txt
 vi conf-sec-pod2.yaml
@@ -1832,7 +1838,7 @@ spec:
 ```bash
 kubectl apply -f conf-sec-pod2.yaml
 kubectl get po | grep conf-sec-pod2
-kubectl exec -it conf-sec-pod2 -- env      # K8S_ENV=containerd, WEB_DB_CONN=k8spwd
+kubectl exec -it conf-sec-pod2 -- env      # K8S_ENV=containerd, WEB_DB_CONN=<PASSWORD>
 ```
 - vi 의 백업파일(`k8s-env-cm.txt~`)이 생기면 `mv k8s-env-cm.txt~ k8s-env-cm.txt` 로 정리 후 create (자료 사례).
 - `env | K8S_ENV` 처럼 grep 없이 파이프하면 `K8S_ENV: command not found`.
@@ -1841,7 +1847,7 @@ kubectl exec -it conf-sec-pod2 -- env      # K8S_ENV=containerd, WEB_DB_CONN=k8s
 - Secret 값은 describe/get 에서 가려지지만 `-o yaml` 의 base64 는 쉽게 디코딩된다 → Step 11 의 SealedSecret, Step 12 의 etcd 암호화 참고. Git 등에 인코딩된 Secret YAML 을 올리지 말 것(마스킹 유지: 이 문서의 비밀값은 모두 실습용 더미 값).
 - envFrom 은 모든 key 를 키 이름 그대로 주입, `*KeyRef` 는 key 를 골라 원하는 변수 이름으로 주입.
 - Pod 외 Deployment/StatefulSet 등에서도 같은 방식으로 사용.
-- Pod 안에서는 Secret 이 자동 디코딩된 평문으로 들어간다(env 의 `mypwd=k8spass#`, `/secrets/user` 내용 `k8suser`). `ls -al /secrets` 에는 ConfigMap 과 같은 `..data` 심볼릭 링크 구조가 보인다.
+- Pod 안에서는 Secret 이 자동 디코딩된 평문으로 들어간다(env 의 `mypwd=<PASSWORD>`, `/secrets/user` 내용 `k8suser`). `ls -al /secrets` 에는 ConfigMap 과 같은 `..data` 심볼릭 링크 구조가 보인다.
 - **오류와 해결 / 실수 사례(강의 중)** : `bae64 -d` 로 오타 → `Command 'bae64' not found, did you mean: command 'base64'`. `kubectl` 을 빼고 `create secret generic ...` 만 입력 → `Command 'create' not found`(한 줄로 `kubectl create secret generic ...` 다시 입력해 성공). `kubectl exec ... -- env | K8S_ENV` 처럼 `grep` 을 빼면 `K8S_ENV: command not found`. vi 백업파일(`k8s-env-cm.txt~`)이 생기면 `mv k8s-env-cm.txt~ k8s-env-cm.txt` 로 정리한 뒤 create.
 - LAB3(a) 출력에서 `orchestrator=k8s` 인 것은 앞서 ConfigMap 실습에서 `kubectl edit cm k8s-env` 로 값을 k8s 로 바꾼 상태이기 때문으로 보인다(ConfigMap 값 2개 + Secret 값 4개 = 총 6개 환경변수, 그 아래 KUBERNETES_*, *_SVC_* 변수는 쿠버네티스가 자동 주입하는 서비스 환경변수).
 
@@ -1874,9 +1880,9 @@ kubectl exec -it conf-sec-pod2 -- env      # K8S_ENV=containerd, WEB_DB_CONN=k8s
   - **문제** : GitOps(Git 을 기준으로 배포 상태를 관리하는 방식)에서는 Secret 구성 값(data)이 Git 에 저장되는데 단순 base64 인코딩이라 누구나 디코딩 가능 → 민감 데이터 노출 위험("Git 같은 곳에 Secret 데이터를 올리는 경우 분명히 노출"). (클립 시작부에서 etcd 에 저장되는 Secret 도 평문이라는 점을 언급하며 그 암호화는 별도 클립에서 다룬다고 소개.)
   - **해결** : SealedSecret 은 사용 중인 클러스터에서 실행되는 **Controller 에 의해서만 암호화/복호화** 가능 — 권한 문제가 아니라 Controller 가 있는 해당 클러스터에서만 해독할 수 있다는 점이 핵심. 동작: 사용자는 SealedSecret 으로 **공개키 암호화** 방식의 Secret 암호화를 수행 → SealedSecret Controller 가 Kubernetes Secret 으로 복호화 → 이 작업들은 Controller 내에 저장된 인증서(Private key)로 처리 → 예기치 않은 상황에 대비해 이 내장 인증서를 **로컬로 저장**해 사용할 수 있다. Controller 가 장애 나면 복호화가 안 되어 API 서버가 Secret 을 읽어 앱 Pod 를 띄울 때 에러가 날 수 있어 심각하므로 인증서를 미리 로컬에 저장해 두고 그것으로 암호화하는 방법도 제공(`--fetch-cert`).
   - **kubeseal / controller** : kubeseal = SealedSecret 을 만드는 CLI, controller = 클러스터에서 복호화를 담당하는 컴포넌트(kube-system 네임스페이스 배포). **둘은 버전이 같아야** 하므로 0.24.5 로 맞춤(공식 사이트 bitnami-labs/sealed-secrets 에서 당시 최신. 버전이 달라질 수 있으니 확인). 슬라이드 참고: **SealedSecret 과 Secret 은 동일한 네임스페이스에서 동일한 이름**을 가져야 한다. `wget` 으로 압축 파일, `tar` 로 kubeseal 실행 파일만 추출, `sudo install -m 755 ... /usr/local/bin/kubeseal` 로 PATH 경로에 실행 권한 755 로 설치. `${KUBESEAL_VERSION:?}` 는 변수가 비어 있으면 에러를 내는 셸 문법.
-  - **흐름** : `--dry-run=client -o yaml` 로 Secret 매니페스트만 생성(mysecret-1.yaml, `superpwd` 값 `azhzcGFzcyMxMTE=` → `echo -n ... | base64 -d` = `k8spass#111`; 이 파일을 Git 에 올리면 누구나 값을 봄) → `cat mysecret-1.yaml | kubeseal -o yaml > mysecret-sealed-1.yaml`(Controller 의 공개 인증서로 암호화, `data` 자리가 `spec.encryptedData` 로 바뀌고 값이 긴 암호문, 아직 클러스터에 적용 안 됨) → `kubectl apply` 하면 Controller 가 감지해 같은 이름의 일반 Secret 을 자동 생성(`get sealedsecret` 과 `get secrets` 양쪽에 표시, `jsonpath='{.data.superpwd}' | base64 -d` = k8spass#111). 외부에서 암호문(SealedSecret)만으로는 복호화 불가.
-  - **수정** : 같은 이름으로 값을 `k8spass#222`(mysecret-2.yaml)로 바꿔 다시 kubeseal → apply → 이미 같은 이름이 있으므로 `configured`(업데이트), 조회하면 222 로 갱신.
-  - **`--fetch-cert`** : `kubeseal --controller-name=sealed-secrets-controller --controller-namespace=kube-system --fetch-cert > mycert.pem`(controller-name/namespace 는 기본값과 같으면 생략 가능, 슬라이드에 회색). 저장한 `mycert.pem` 을 `--cert` 로 지정하면 클러스터의 Controller 에 접속하지 않고 **로컬 인증서만으로** 암호화 가능. Secret 매니페스트 생성과 kubeseal 을 파이프로 한 번에 이어 `local-sealedsecret`(값 k8spass#333)를 만들고 apply → secrets/sealedsecrets 양쪽에 같은 이름 생성.
+  - **흐름** : `--dry-run=client -o yaml` 로 Secret 매니페스트만 생성(mysecret-1.yaml, `superpwd` 값 `<BASE64_ENCODED_PASSWORD>` → `echo -n ... | base64 -d` = `<PASSWORD>`; 이 파일을 Git 에 올리면 누구나 값을 봄) → `cat mysecret-1.yaml | kubeseal -o yaml > mysecret-sealed-1.yaml`(Controller 의 공개 인증서로 암호화, `data` 자리가 `spec.encryptedData` 로 바뀌고 값이 긴 암호문, 아직 클러스터에 적용 안 됨) → `kubectl apply` 하면 Controller 가 감지해 같은 이름의 일반 Secret 을 자동 생성(`get sealedsecret` 과 `get secrets` 양쪽에 표시, `jsonpath='{.data.superpwd}' | base64 -d` = <PASSWORD>). 외부에서 암호문(SealedSecret)만으로는 복호화 불가.
+  - **수정** : 같은 이름으로 값을 `<PASSWORD>`(mysecret-2.yaml)로 바꿔 다시 kubeseal → apply → 이미 같은 이름이 있으므로 `configured`(업데이트), 조회하면 222 로 갱신.
+  - **`--fetch-cert`** : `kubeseal --controller-name=sealed-secrets-controller --controller-namespace=kube-system --fetch-cert > mycert.pem`(controller-name/namespace 는 기본값과 같으면 생략 가능, 슬라이드에 회색). 저장한 `mycert.pem` 을 `--cert` 로 지정하면 클러스터의 Controller 에 접속하지 않고 **로컬 인증서만으로** 암호화 가능. Secret 매니페스트 생성과 kubeseal 을 파이프로 한 번에 이어 `local-sealedsecret`(값 <PASSWORD>)를 만들고 apply → secrets/sealedsecrets 양쪽에 같은 이름 생성.
   - **`--re-encrypt`** : 암호화 키를 주기적으로 교체. `kubeseal --re-encrypt < mysecret-sealed-2.yaml > tmp.yaml && mv tmp.yaml mysecret-sealed-2.yaml` → 다시 apply 하면 `encryptedData` 가 새 암호문(AgCLj5AB… → AgAAqQLGit7z…)으로 바뀜. 강사: "이건 키 교체이고, 사용하는 데는 지장이 없어서 동일하게 적용해 쓰면 된다".
   - 강사 마무리: 기본 Secret, 고급 Secret(TLS), 암호화를 추가하는 SealedSecret 까지 사용해 보며 Secret 을 마무리.
 
@@ -2124,16 +2130,16 @@ kubectl get pods -n kube-system | grep sealed-secrets-controller
 ```bash
 mkdir sealed-sec && cd $_
 kubectl create secret generic secret-from-sealedsecret \
---dry-run=client --from-literal=superpwd=k8spass#111 -o yaml > mysecret-1.yaml
-vi mysecret-1.yaml                               # data.superpwd: azhzcGFzcyMxMTE= (base64 일 뿐)
-echo -n "azhzcGFzcyMxMTE=" | base64 -d          # k8spass#111
+--dry-run=client --from-literal=superpwd=<PASSWORD> -o yaml > mysecret-1.yaml
+vi mysecret-1.yaml                               # data.superpwd: <BASE64_ENCODED_PASSWORD> (base64 일 뿐)
+echo -n "<BASE64_ENCODED_PASSWORD>" | base64 -d          # <PASSWORD>
 
 cat mysecret-1.yaml | kubeseal -o yaml > mysecret-sealed-1.yaml
 vi mysecret-sealed-1.yaml                        # kind: SealedSecret, spec.encryptedData.superpwd 암호화됨
 kubectl apply -f mysecret-sealed-1.yaml
 kubectl get sealedsecret
 kubectl get secrets                              # Controller 가 복호화해 Secret 자동 생성
-kubectl get secret secret-from-sealedsecret -o jsonpath='{.data.superpwd}' | base64 -d   # k8spass#111
+kubectl get secret secret-from-sealedsecret -o jsonpath='{.data.superpwd}' | base64 -d   # <PASSWORD>
 ```
 SealedSecret YAML 구조 (자료):
 ```yaml
@@ -2145,7 +2151,7 @@ metadata:
   namespace: default
 spec:
   encryptedData:
-    superpwd: AgB1hzfzfF/kPFO9YvOR0ALTodH1sIPzl7sx0NMdceta730817J+...   # (이하 생략)
+    superpwd: <SEALED_ENCRYPTED_VALUE>...   # (이하 생략)
   template:
     metadata:
       creationTimestamp: null
@@ -2154,13 +2160,13 @@ spec:
 ```
 값 변경(재봉인 후 apply → `configured`):
 ```bash
-kubectl create secret generic secret-from-sealedsecret --dry-run=client --from-literal=superpwd=k8spass#222 -o yaml > mysecret-2.yaml
+kubectl create secret generic secret-from-sealedsecret --dry-run=client --from-literal=superpwd=<PASSWORD> -o yaml > mysecret-2.yaml
 vi mysecret-2.yaml
-echo -n "azhzcGFzcyMyMjI=" | base64 -d          # k8spass#222
+echo -n "<BASE64_ENCODED_PASSWORD>" | base64 -d          # <PASSWORD>
 cat mysecret-2.yaml | kubeseal -o yaml > mysecret-sealed-2.yaml
 vi mysecret-sealed-2.yaml                        # encryptedData 확인
 kubectl apply -f mysecret-sealed-2.yaml          # sealedsecret.bitnami.com/secret-from-sealedsecret configured
-kubectl get secret secret-from-sealedsecret -o jsonpath='{.data.superpwd}' | base64 -d   # k8spass#222
+kubectl get secret secret-from-sealedsecret -o jsonpath='{.data.superpwd}' | base64 -d   # <PASSWORD>
 ```
 공개 인증서 받아 봉인(`--fetch-cert`, `--cert`):
 ```bash
@@ -2168,9 +2174,9 @@ kubeseal --controller-name=sealed-secrets-controller \
 --controller-namespace=kube-system --fetch-cert > mycert.pem
 cat mycert.pem                                   # -----BEGIN CERTIFICATE----- ... (공개 인증서)
 
-kubectl create secret generic local-sealedsecret --dry-run=client --from-literal=superpwd=k8spass#333 -o yaml | kubeseal --controller-name=sealed-secrets-controller --controller-namespace=kube-system --format yaml --cert mycert.pem > mysecret-sealed-3.yaml
+kubectl create secret generic local-sealedsecret --dry-run=client --from-literal=superpwd=<PASSWORD> -o yaml | kubeseal --controller-name=sealed-secrets-controller --controller-namespace=kube-system --format yaml --cert mycert.pem > mysecret-sealed-3.yaml
 kubectl apply -f mysecret-sealed-3.yaml
-kubectl get secret local-sealedsecret -o jsonpath='{.data.superpwd}' | base64 -d   # k8spass#333
+kubectl get secret local-sealedsecret -o jsonpath='{.data.superpwd}' | base64 -d   # <PASSWORD>
 kubectl get secrets
 kubectl get sealedsecrets
 ```
@@ -2189,7 +2195,7 @@ kubectl get sealedsecrets.bitnami.com secret-from-sealedsecret -o yaml   # encry
 - `kubectl port-forward ... &` 로 백그라운드 실행 후 curl (자료는 터미널 2개 사용).
 - **오류와 해결** : `kubectl -n ingress-nginx svc` 처럼 서브커맨드 `get` 을 빠뜨리면 `Error: flags cannot be placed before plugin name: -n`. `kubeseal` 과 controller 버전 불일치 주의(둘 다 0.24.5). SealedSecret 과 Secret 의 이름·네임스페이스가 같아야 한다. 자료의 긴 암호문(인증서/encryptedData)은 일부만 표기되었으므로 값은 실제 환경에서 생성한 것을 사용.
 - 영상 터미널에서는 SealedSecret 실습 디렉터리를 `sealed` 로 만들어 작업했고 슬라이드에는 `sealed-sec` 로 표기(명령 내용은 같음). 슬라이드 상 Ingress YAML 의 rules 는 오른쪽 열에 이어져 있어 위 YAML 은 이어 붙인 것.
-- 비밀값(k8spass#111 등)은 모두 실습용 더미 값이며 인증서/암호문 본문은 문서에 싣지 않는다.
+- 비밀값(<PASSWORD> 등)은 모두 실습용 더미 값이며 인증서/암호문 본문은 문서에 싣지 않는다.
 
 ---
 
@@ -2203,7 +2209,7 @@ kubectl get sealedsecrets.bitnami.com secret-from-sealedsecret -o yaml   # encry
 
 - **Secret 은 etcd 에 평문으로 저장된다** : Secret 의 값은 base64 로 인코딩되어 있어 "암호화"로 알고 있는 경우가 많지만 etcd 에 기록된 정보를 직접 보면 평문(plaintext)이다(슬라이드: "Secret 에 저장된 인코딩 값은 etcd 를 들여다 보면 평문으로 확인"). etcd 는 컨트롤 플레인이 클러스터의 모든 상태를 저장하는 키-값 저장소(아키텍처 장에서 학습). **etcd 에 저장되는 모든 API 리소스는 암호화를 지원하지만 기본값은 암호화하지 않는 평문**이며, 모든 리소스를 한꺼번에 또는 "Secret 만" 등 일부만 지정해 암호화할 수 있다. etcd 에 접근 권한이 있는 사람은 누구나 값을 볼 수 있으므로 그것조차 암호화하려는 것이 이 기능의 목적.
 - **/registry 경로 구조** : kube-apiserver 가 etcd 의 가상 경로 `/registry/*` 아래 카테고리별 디렉터리(`/registry/secrets/*`, `/registry/configmaps/*`, `/registry/pods/*` …)에 "레지스트리 / 종류 / 네임스페이스 / 이름 → 데이터" 구조로 저장. 예: `/registry/secrets/default/etcd-secret`.
-- **etcdctl** : etcd 안쪽을 들여다보는 명령. 방법 2가지 — ① 호스트에 etcdctl 직접 설치(LAB1), ② kube-system 의 etcd 파드 안에 이미 설치된 etcdctl 사용(LAB2). 접속 옵션: `ETCDCTL_API=3`(API v3), `--cert`(클라이언트 인증서), `--key`(클라이언트 키), `--cacert`(CA 인증서), `get /registry/<종류>/<네임스페이스>/<이름>`. 출력은 `hexdump -C` 로 보면 오른쪽 문자열에 `mypwd`, `k8spass#` 가 그대로 보인다(= 평문 저장; `kubectl get -o yaml` 의 `azhzcGFzcyM=` 는 base64 라 누구나 디코딩 가능).
+- **etcdctl** : etcd 안쪽을 들여다보는 명령. 방법 2가지 — ① 호스트에 etcdctl 직접 설치(LAB1), ② kube-system 의 etcd 파드 안에 이미 설치된 etcdctl 사용(LAB2). 접속 옵션: `ETCDCTL_API=3`(API v3), `--cert`(클라이언트 인증서), `--key`(클라이언트 키), `--cacert`(CA 인증서), `get /registry/<종류>/<네임스페이스>/<이름>`. 출력은 `hexdump -C` 로 보면 오른쪽 문자열에 `mypwd`, `<PASSWORD>` 가 그대로 보인다(= 평문 저장; `kubectl get -o yaml` 의 `<BASE64_ENCODED_PASSWORD>` 는 base64 라 누구나 디코딩 가능).
 - **etcd 암호화를 켜기 위한 설정 2가지 (이 두 가지만 하면 활성화)**
 
 | 설정 | 내용 |
@@ -2226,7 +2232,7 @@ kubectl get sealedsecrets.bitnami.com secret-from-sealedsecret -o yaml   # encry
 
   - 강사: secretbox 는 쿠버네티스 1.27 에 새로 나온 provider(실습 클러스터 v1.28, 1.29 가 나온 상태). 강도가 강하고 속도도 빠르며 키 길이가 32바이트라 선택. 다른 알고리즘은 요구사항에 맞게 provider 작성. 참고: kubernetes.io/docs/tasks/administer-cluster/encrypt-data/.
 - **kube-apiserver 재시작** : `/etc/kubernetes/manifests` 아래 파일은 kubelet 이 직접 관리하는 스태틱 파드 정의. 저장하면 변경이 감지되어 kube-apiserver 가 자동 재시작되며 보통 **30초~1분 이내**. 그동안 `kubectl get no` 는 `The connection to the server 192.168.56.100:6443 was refused`. kubectl 이 응답하면 API 서버와 통신이 된다는 뜻이므로 노드 조회만으로 정상 여부 확인 가능. 강사가 강조: 이 작업은 **아주 중요하고 민감한 작업**이므로 오타 없이 정확히 입력해야 하며 잘못하면 API 서버가 올라오지 않을 수 있다.
-- **적용 확인** : 재시작 전 `ps -aux | grep kube-api | grep "encryption-provider-config"` 는 아무 줄도 안 나옴(미적용), 재시작 후에는 `kube-apiserver --encryption-provider-config=/etc/kubernetes/pki/encryption.yaml ...` 가 나타남. 암호화 후 etcd 값은 `k8s:enc:secretbox:v1:key1:` 접두어 + 사람이 읽을 수 없는 바이너리(접두어 = "secretbox provider 의 key1 으로 암호화했다"는 표시), `mypwd`/`k8spass#` 문자열은 보이지 않는다.
+- **적용 확인** : 재시작 전 `ps -aux | grep kube-api | grep "encryption-provider-config"` 는 아무 줄도 안 나옴(미적용), 재시작 후에는 `kube-apiserver --encryption-provider-config=/etc/kubernetes/pki/encryption.yaml ...` 가 나타남. 암호화 후 etcd 값은 `k8s:enc:secretbox:v1:key1:` 접두어 + 사람이 읽을 수 없는 바이너리(접두어 = "secretbox provider 의 key1 으로 암호화했다"는 표시), `mypwd`/`<PASSWORD>` 문자열은 보이지 않는다.
 - **기존(암호화 전) Secret 은 수동으로 다시 써야 한다** : 암호화 설정을 켠 시점 이후에 쓰이는(생성·수정되는) 데이터만 암호화된다. `kubectl get secrets <이름> -o json | kubectl replace -f -`(JSON 으로 읽어 그대로 replace → kube-apiserver 가 다시 저장하면서 현재 설정(암호화) 적용). `-A` = 전체 네임스페이스, `-n [namespace]` = 특정 네임스페이스의 Secret 전체를 한 번에 교체.
 - **주의(실제 사례, 슬라이드 붉은 말풍선)** : "[주의] 암호화된 secret 이 있는 상태에서 암호화 해제 시 apiserver 가 해당 secret 해독 불가로 not running 될 수 있다." kube-apiserver 가 재시작되면 관리하는 모든 리소스 오브젝트를 한 번씩 읽는데 암호화된 Secret 이 남은 채 암호화를 해제하면 해독하지 못해 API 서버 전체가 정상 구동되지 못한 트러블슈팅 사례가 있었다 → 신중하게 사용. (보충 — 영상 발언이 아닌 위 주의에서 이끌어 낸 것: 암호화를 해제해야 한다면 먼저 암호화된 Secret 들을 평문으로 되돌려 해독 불가 데이터가 남지 않게 해야 한다.)
 
@@ -2247,18 +2253,18 @@ etcd -version                  # Etcd Version: 3.5.11
 ```bash
 ps -aux | grep kube-api | grep "encryption-provider-config"     # 아무것도 안 나오면 미적용
 
-kubectl create secret generic etcd-secret --from-literal=mypwd=k8spass#
-kubectl get secrets etcd-secret -o yaml                          # data.mypwd: azhzcGFzcyM=
+kubectl create secret generic etcd-secret --from-literal=mypwd=<PASSWORD>
+kubectl get secrets etcd-secret -o yaml                          # data.mypwd: <BASE64_ENCODED_PASSWORD>
 
 sudo ETCDCTL_API=3 etcdctl --cert /etc/kubernetes/pki/apiserver-etcd-client.crt --key /etc/kubernetes/pki/apiserver-etcd-client.key --cacert /etc/kubernetes/pki/etcd/ca.crt get /registry/secrets/default/etcd-secret | hexdump -C
-# hexdump 에서 "mypwd", "k8spass#" 가 그대로 보임 (평문 저장)
+# hexdump 에서 "mypwd", "<PASSWORD>" 가 그대로 보임 (평문 저장)
 ```
 - `ETCDCTL_API=3` : API v3, `--cert/--key/--cacert` : etcd 접속 인증서, `get <키>` : etcd 키 조회, `hexdump -C` : 16진수+ASCII 출력.
 
 ### 12-3. EncryptionConfiguration 작성
 ```bash
 kubectl delete secret etcd-secret
-head -c 32 /dev/urandom | base64          # 32byte 랜덤 키 생성 (예: uVYWZVszQZu+93hztFq+KlFK4QYJJR8/zry+GK8qJFs=)
+head -c 32 /dev/urandom | base64          # 32byte 랜덤 키 생성 (예: <BASE64_32BYTE_KEY>)
 sudo vi /etc/kubernetes/pki/encryption.yaml
 ```
 ```yaml
@@ -2272,7 +2278,7 @@ resources:
       - secretbox:
           keys:
             - name: key1
-              secret: uVYWZVszQZu+93hztFq+KlFK4QYJJR8/zry+GK8qJFs=
+              secret: <BASE64_32BYTE_KEY>
       - identity: {}
 ```
 - 파일은 apiserver 가 마운트하는 `/etc/kubernetes/pki` 아래에 둔다(자료). key 이름은 key1, key2 ... 로 구분.
@@ -2297,14 +2303,14 @@ ps -aux | grep kube-api | grep "encryption-provider-config"   # 옵션 적용 �
 
 ### 12-5. 검증 1: 호스트의 etcdctl 로 새 Secret 확인
 ```bash
-kubectl create secret generic etcd-secret --from-literal=mypwd=k8spass#
+kubectl create secret generic etcd-secret --from-literal=mypwd=<PASSWORD>
 sudo ETCDCTL_API=3 etcdctl --cert /etc/kubernetes/pki/apiserver-etcd-client.crt --key /etc/kubernetes/pki/apiserver-etcd-client.key --cacert /etc/kubernetes/pki/etcd/ca.crt get /registry/secrets/default/etcd-secret | hexdump -C
-# 값 영역이 "k8s:enc:secretbox:v1:key1:" 접두 + 암호화된 바이트 → 평문 mypwd/k8spass# 가 안 보임
+# 값 영역이 "k8s:enc:secretbox:v1:key1:" 접두 + 암호화된 바이트 → 평문 mypwd/<PASSWORD> 가 안 보임
 ```
 
 ### 12-6. 검증 2: etcd Pod 안에서 etcdctl 실행 (kube-system)
 ```bash
-kubectl create secret generic january-secret --from-literal=januarykey=k8spass#
+kubectl create secret generic january-secret --from-literal=januarykey=<PASSWORD>
 
 kubectl -n kube-system exec -it etcd-k8s-master -- sh -c "ETCDCTL_API=3 \
 ETCDCTL_CACERT=/etc/kubernetes/pki/etcd/ca.crt \
@@ -2313,9 +2319,9 @@ ETCDCTL_KEY=/etc/kubernetes/pki/etcd/server.key \
 etcdctl --endpoints=https://127.0.0.1:2379 \
 get /registry/secrets/default/january-secret"
 ```
-- 자료 흐름(정정): 슬라이드 94쪽 제목은 "두 번째 방법, etcd encryption (etcd 암호화 기능 해제 후..)" 로, 아래에 `januarykek8spass#Opaque` 같은 평문이 보이는 예는 **암호화 기능을 해제한 뒤 만든 Secret 은 평문으로 저장된다**는 것을 보여 주는 설명이다. 강사는 실습에서 이 해제 과정을 건너뛰고 암호화 기능을 유지한 채 살펴봤다고 하며(암호화 설정·해제는 kube-apiserver 옵션을 지웠다 넣었다 하면 간단), 이후 `february-secret` 을 새로 만들어 조회하면 `k8s:enc:secretbox:v1:key1:` 로 암호화되어 보인다. 암호화 활성화 후 새로 만드는 Secret 은 모두 자동 암호화된다. (`january-secret` 은 아래 12-7 의 replace 로 암호화됨.)
+- 자료 흐름(정정): 슬라이드 94쪽 제목은 "두 번째 방법, etcd encryption (etcd 암호화 기능 해제 후..)" 로, 아래에 `januaryke<PASSWORD>Opaque` 같은 평문이 보이는 예는 **암호화 기능을 해제한 뒤 만든 Secret 은 평문으로 저장된다**는 것을 보여 주는 설명이다. 강사는 실습에서 이 해제 과정을 건너뛰고 암호화 기능을 유지한 채 살펴봤다고 하며(암호화 설정·해제는 kube-apiserver 옵션을 지웠다 넣었다 하면 간단), 이후 `february-secret` 을 새로 만들어 조회하면 `k8s:enc:secretbox:v1:key1:` 로 암호화되어 보인다. 암호화 활성화 후 새로 만드는 Secret 은 모두 자동 암호화된다. (`january-secret` 은 아래 12-7 의 replace 로 암호화됨.)
 ```bash
-kubectl create secret generic february-secret --from-literal=februarykey=k8spass#
+kubectl create secret generic february-secret --from-literal=februarykey=<PASSWORD>
 kubectl -n kube-system exec -it etcd-k8s-master -- sh -c "ETCDCTL_API=3 \
 ETCDCTL_CACERT=/etc/kubernetes/pki/etcd/ca.crt \
 ETCDCTL_CERT=/etc/kubernetes/pki/etcd/server.crt \
@@ -2516,7 +2522,7 @@ sudo ls /proc/<PID>
 ### 14-2. LAB2: Secret/ConfigMap 연동 Deployment (mydb)
 ```bash
 kubectl create secret generic mydb-secret \
---from-literal=user=kevin --from-literal=userpwd=k8spass#
+--from-literal=user=kevin --from-literal=userpwd=<PASSWORD>
 
 kubectl create configmap mydb-cnf \
 --from-literal=dbhost="192.168.56.200" --from-literal=port=3306 \

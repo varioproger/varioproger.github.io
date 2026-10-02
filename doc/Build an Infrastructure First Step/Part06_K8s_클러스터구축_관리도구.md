@@ -1,3 +1,9 @@
+---
+title: "Part 06. Kubernetes 클러스터 구축 및 관리도구"
+parent: "Docker·K8s 인프라 구축 실습 순서"
+nav_order: 6
+---
+
 # Part 06. Kubernetes 클러스터 구축 및 관리도구
 
 > 출처: DevOps 초격자 Docker & Kubernetes feat. Amazon EKS (Kubernetes Part2) - CH01 컨테이너 서비스 개요 / CH02 Kubernetes Cluster 환경 구축 / CH03 Kubernetes 관리도구 (자료 053~063)

@@ -1,7 +1,13 @@
+---
+title: "Part 05. AWS ECS/ECR 배포 + Jenkins CI/CD + My Diary 3-Tier 프로젝트"
+parent: "Docker·K8s 인프라 구축 실습 순서"
+nav_order: 5
+---
+
 # Part 05. AWS ECS/ECR 배포 + Jenkins CI/CD + My Diary 3-Tier 프로젝트
 
 > 출처: 014~019 자료 (Ch13 Amazon ECS 3편, Ch14 Jenkins CI/CD 1편 + My Diary 프로젝트 2편).
-> 초기 버전은 PDF 텍스트 추출본(한글 소실)으로 작성했으나, 이후 PDF 6편 전체(014: 15쪽, 015: 21쪽, 016: 21쪽, 017: 25쪽, 018: 17쪽, 019: 34쪽)의 한글 본문(슬라이드 설명, 강사 음성 설명 요약, 화면 캡션, 셀프 체크)을 텍스트 레이어로 직접 읽어 [이론]/주의점/오류 해결을 보강했다. 못 읽은 쪽은 없으나 슬라이드의 다이어그램/스크린샷 이미지 자체는 보지 못했고, PDF 본문의 캡션/설명 문장으로만 확인했다(이미지 안에만 있는 값은 "미확인"). 계정 ID(594682333406), 리전(ap-northeast-2), 리소스 이름은 자료 예시값 그대로이며, 비밀번호/토큰/Access Key 값은 마스킹했다.
+> 초기 버전은 PDF 텍스트 추출본(한글 소실)으로 작성했으나, 이후 PDF 6편 전체(014: 15쪽, 015: 21쪽, 016: 21쪽, 017: 25쪽, 018: 17쪽, 019: 34쪽)의 한글 본문(슬라이드 설명, 강사 음성 설명 요약, 화면 캡션, 셀프 체크)을 텍스트 레이어로 직접 읽어 [이론]/주의점/오류 해결을 보강했다. 못 읽은 쪽은 없으나 슬라이드의 다이어그램/스크린샷 이미지 자체는 보지 못했고, PDF 본문의 캡션/설명 문장으로만 확인했다(이미지 안에만 있는 값은 "미확인"). 계정 ID(<AWS_ACCOUNT_ID>), 리전(ap-northeast-2), 리소스 이름은 자료 예시값 그대로이며, 비밀번호/토큰/Access Key 값은 마스킹했다.
 
 ## 전체 구축 순서 (로드맵)
 
@@ -150,16 +156,16 @@ ec2-user:~/fastcampus/ch09/nodejs (main) $ docker images | grep nodejs
 
 # 3) ECR 로그인
 ec2-user:~ $ aws ecr get-login-password --region ap-northeast-2 | docker login \
-  --username AWS --password-stdin 594682333406.dkr.ecr.ap-northeast-2.amazonaws.com
+  --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com
 # Login Succeeded
 
 # 4) 계정 ID 확인
 ec2-user:~ $ aws sts get-caller-identity --query Account --output text
-# 594682333406
+# <AWS_ACCOUNT_ID>
 
 # 5) tag & push
-~$ docker image tag nodejs:1.0 594682333406.dkr.ecr.ap-northeast-2.amazonaws.com/nodejs:1.0
-~$ docker push 594682333406.dkr.ecr.ap-northeast-2.amazonaws.com/nodejs:1.0
+~$ docker image tag nodejs:1.0 <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/nodejs:1.0
+~$ docker push <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/nodejs:1.0
 ```
 옵션 설명:
 - `aws ecr create-repository --repository-name <이름>`: ECR 저장소 생성
@@ -183,7 +189,7 @@ ECS(EC2 유형) 클러스터를 만들고 nodejs 컨테이너를 서비스로 �
 
 ### 이론 설명
 1. **클러스터**: 이름 `ecs-cluster`, 프로비저닝 모델 온디맨드 인스턴스(EC2), 인스턴스 `t3.small` x 2. 슬라이드는 t3.medium 권장이라 적혀 있으나 화면에서 실제 선택된 값은 t3.small. 강사 경험담: small로 했다가 디스크가 10GB뿐이라 이미지를 만들다 금방 가득 차서 더 이상 만들 수 없었고 루트 볼륨을 30GB로 늘려 해결(실습 화면의 "루트 EBS 볼륨 크기 30GiB"가 그 조치). 비용을 고려해 본인 상황에 맞게 선택. 네트워크: VPC `ecs-vpc`, 서브넷 프라이빗 1/2, 보안 그룹 `ecs-sg-instance`. 생성 후 상태 ACTIVE, 컨테이너 인스턴스 2개. 클러스터는 태스크를 실행할 컴퓨팅 리소스(EC2 또는 Fargate)의 묶음이다.
-2. **작업 정의** `ecs-task`(EC2 호환성): 컨테이너 이름 `nodejs-app`, 이미지 `594682333406.dkr.ecr.ap-northeast-2.amazonaws.com/nodejs:1.0`, 메모리 제한(하드) 500MiB, 포트 매핑 3000:3000(tcp), 상태 확인 `CMD-SHELL, curl -f http://localhost/ || exit 1`. **이미지 칸에는 마음대로 쓰지 말고 ECR 리포지토리 화면의 이미지 URI를 그대로 복사**해 넣어야 ECS가 이미지를 정확히 찾는다(강사). 포트 흐름: 바깥에서 80 -> ALB가 EC2(호스트) 3000으로 전달 -> 호스트 3000이 컨테이너 3000으로 연결.
+2. **작업 정의** `ecs-task`(EC2 호환성): 컨테이너 이름 `nodejs-app`, 이미지 `<AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/nodejs:1.0`, 메모리 제한(하드) 500MiB, 포트 매핑 3000:3000(tcp), 상태 확인 `CMD-SHELL, curl -f http://localhost/ || exit 1`. **이미지 칸에는 마음대로 쓰지 말고 ECR 리포지토리 화면의 이미지 URI를 그대로 복사**해 넣어야 ECS가 이미지를 정확히 찾는다(강사). 포트 흐름: 바깥에서 80 -> ALB가 EC2(호스트) 3000으로 전달 -> 호스트 3000이 컨테이너 3000으로 연결.
 3. **서비스**: 시작 유형 EC2, 작업 정의 `ecs-task:7`(패밀리:개정=리비전 7), 클러스터 `ecs-cluster`, 서비스 유형 REPLICA(지정한 개수만큼 태스크가 항상 떠 있도록 관리). 다음 단계(네트워크 구성)에서 로드 밸런서 유형 Application Load Balancer, 기존 `ecs-alb`와 `ecs-target-group`을 연결해 컨테이너 3000 포트를 ALB 80 포트와 매핑.
 4. **504 Gateway Time-out 해결**: 서비스 생성 후 ALB DNS(`ecs-alb-595795020.ap-northeast-2.elb.amazonaws.com`)로 접속하면 504가 발생. 원인은 보안 그룹: ALB는 80으로 요청을 받지만 실제 컨테이너(작업 정의에서 지정한 포트)는 3000에서 동작하는데 `ecs-sg-instance`에 HTTP(80) 인바운드만 있어 ALB가 EC2의 3000 포트로 전달하려 해도 막혔다. `ecs-sg-instance` 인바운드 편집에서 **사용자 지정 TCP 3000-3010**(소스 `ecs-sg-alb`)을 추가하여 해결 -> 재접속 시 "Welcome to Fastcampus - Nodejs App using dockerfile" 응답 확인. (슬라이드: ALB를 통해 http(80)로 접속한 뒤 EC2에서 실행 중인 컨테이너에 접근하려면 작업 정의에서 설정한 3000번 포트가 노출되어야 한다.) 셀프 체크: 504의 근본 원인과 수정한 설정은?
 
@@ -191,7 +197,7 @@ ECS(EC2 유형) 클러스터를 만들고 nodejs 컨테이너를 서비스로 �
 콘솔(GUI) 작업. 작업 정의 핵심값(참고용):
 ```text
 컨테이너 이름 : nodejs-app
-이미지 URI    : 594682333406.dkr.ecr.ap-northeast-2.amazonaws.com/nodejs:1.0
+이미지 URI    : <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/nodejs:1.0
 메모리 제한   : 500 MiB
 포트 매핑     : 3000 (호스트) : 3000 (컨테이너) tcp
 Health check  : CMD-SHELL, curl -f http://localhost/ || exit 1
@@ -233,7 +239,7 @@ ec2-user:~ $ aws ecr create-repository --repository-name fc-nginx
 
 # 2) ECR 로그인
 ec2-user:~ $ aws ecr get-login-password --region ap-northeast-2 | docker login \
-  --username AWS --password-stdin 594682333406.dkr.ecr.ap-northeast-2.amazonaws.com
+  --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com
 # WARNING! Your password will be stored unencrypted in /home/ec2-user/.docker/config.json.
 # Login Succeeded
 
@@ -255,11 +261,11 @@ ec2-user:~/fastcampus/ch13/nginx (main) $ docker build -t fc-nginx:1.0 .
 
 # 5) 태그 + ECR push
 ~$ docker image tag fc-django:1.0 \
-   594682333406.dkr.ecr.ap-northeast-2.amazonaws.com/fc-django:1.0
+   <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/fc-django:1.0
 ~$ docker image tag fc-nginx:1.0 \
-   594682333406.dkr.ecr.ap-northeast-2.amazonaws.com/fc-nginx:1.0
-~$ docker push 594682333406.dkr.ecr.ap-northeast-2.amazonaws.com/fc-django:1.0
-~$ docker push 594682333406.dkr.ecr.ap-northeast-2.amazonaws.com/fc-nginx:1.0
+   <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/fc-nginx:1.0
+~$ docker push <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/fc-django:1.0
+~$ docker push <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/fc-nginx:1.0
 ```
 (일반화 형태) `aws ecr create-repository --repository-name <name>` / `docker build -t <repo>:<tag> .` / `docker image tag <local>:<tag> <ECR URI>/<repo>:<tag>` / `docker push <ECR URI>/<repo>:<tag>`
 
@@ -695,11 +701,11 @@ GitHub/Docker Hub 대신 AWS 서비스(Cloud9, CodeCommit, SNS, SQS, ECR)만으�
 - Jenkins 컨테이너는 Cloud9에서 Dockerfile + docker-compose.yaml로 실행. 공식 이미지(jenkins/jenkins:lts)만으로는 컨테이너 안에서 docker 명령을 쓸 수 없으므로 apt로 docker-ce(Docker CLI)를 추가 설치한 커스텀 이미지를 만든다. Clip1에서 Jenkins+DinD 설정에 78분 정도 걸리던 수작업을 Dockerfile 하나로 압축한 것이며 `docker compose up -d` 한 번으로 이미지(`jenkins_image-jenkins`)가 자동 빌드되어 Jenkins가 올라온다. docker.sock 마운트로 컨테이너 내 docker 명령은 호스트(Cloud9 EC2)의 Docker 데몬을 쓴다. 이 클립에서 Jenkins는 새로 설치하는 것이 아니라 기존 Jenkins에 AWS 연동 파이프라인(`mydiary-pipeline`)만 추가한다(기존 Job과 계정 유지).
 - 자료 내 불일치 주의: 아래 compose는 `8080:8080`으로 매핑돼 있으나 접속은 보안 그룹을 연 18080 포트로 하는 것으로 설명된다(포트 매핑과 접속 포트의 불일치 원인은 자료에 없음). 본인 환경에서 실제 매핑된 포트를 `docker compose ps`로 확인할 것.
 - IAM 사용자 `fcuser` 생성: 루트 계정은 최고 관리자 권한이라 일상 작업에는 극히 제한적으로만 써야 하고(서버에서 root를 안 쓰는 것과 같음, 루트로는 이런 연동 작업이 원활하지 않음) 필요한 권한만 부여한 IAM 사용자를 쓴다. 1단계 사용자 이름 `fcuser`(콘솔 액세스 권한 + 콘솔 암호), 2단계 "직접 정책 연결"로 `AWSCodeCommitPowerUser`, 3~4단계 검토/생성 후 콘솔 로그인 URL/사용자 이름/암호 .csv 다운로드.
-- **받게 되는 파일 3개(강사)**: ① 사용자 생성 직후의 콘솔 로그인용 암호 파일, ② 보안 자격 증명 화면 "AWS CodeCommit에 대한 HTTPS Git 자격 증명 생성"으로 받는 사용자명/암호 파일(`fcuser_codecommit_credentials`; 사용자명 `fcuser-at-594682333406`; git clone/push 및 Jenkins CodeCommit Credential용), ③ "액세스 키 생성"으로 받는 Access Key/Secret Key 파일(Jenkins가 SQS 폴링/ECR 로그인 등 AWS API 호출에 쓰는 자격). 이 세 용도를 구분해 두면 Jenkins Credential 등록 시 헷갈리지 않는다. IAM 화면에는 SSH 퍼블릭 키와 HTTPS Git 자격 증명 두 방식이 모두 제공되는데 SSH 키 페어를 만들 필요가 없는 HTTPS 방식을 사용.
+- **받게 되는 파일 3개(강사)**: ① 사용자 생성 직후의 콘솔 로그인용 암호 파일, ② 보안 자격 증명 화면 "AWS CodeCommit에 대한 HTTPS Git 자격 증명 생성"으로 받는 사용자명/암호 파일(`fcuser_codecommit_credentials`; 사용자명 `fcuser-at-<AWS_ACCOUNT_ID>`; git clone/push 및 Jenkins CodeCommit Credential용), ③ "액세스 키 생성"으로 받는 Access Key/Secret Key 파일(Jenkins가 SQS 폴링/ECR 로그인 등 AWS API 호출에 쓰는 자격). 이 세 용도를 구분해 두면 Jenkins Credential 등록 시 헷갈리지 않는다. IAM 화면에는 SSH 퍼블릭 키와 HTTPS Git 자격 증명 두 방식이 모두 제공되는데 SSH 키 페어를 만들 필요가 없는 HTTPS 방식을 사용.
 - Jenkins 플러그인 설치(Available plugins): AWS CodeCommit(Trigger), AWS SQS trigger, Pipeline: AWS Steps, Amazon ECR, Docker Pipeline, AWS Global Configuration. 설치/재시작 후 반드시 "Installed plugins" 목록에서 정상 설치를 확인(설치 중 누락돼 동작하지 않는 경우가 종종 있음).
 - SNS 토픽 `mydiary-topic`(유형 표준 Standard), SQS 큐 `mydiary-event-queue`(큐의 "SNS 구독" 탭에서 mydiary-topic을 구독 대상으로 지정 -> 구독 생성). CodeCommit 저장소 `mydiary-repo`(개발자 도구 > CodeCommit > 리포지토리 생성)의 Trigger가 SNS를 호출. (Trigger 생성 화면 자체의 설정값은 이 PDF 본문에 없음 - 자료에 없음)
-- Jenkins Credential(강사 정리 총 3종): ① `AWS-CODECOMMIT` (Username with password, Username `fcuser-at-594682333406`, Password는 HTTPS Git 자격 증명 파일의 암호, Scope Global, Description `AWS-CODECOMMIT-CREDENTIALS`), ② SQS Trigger 테스트용 AWS Credentials (`AWS-ACCESS-CREDENTIALS`, IAM Access Key/Secret; 화면에 표시된 AKIA... 값은 마스킹), ③ Docker Hub 계정용 Credential(이전 챕터부터 사용). Jenkinsfile의 ECR 로그인 단계는 같은 Access Key를 `awsaccess` / `awssecret` Credential ID로 주입해 사용(이 둘의 생성 화면은 자료에 없음). 각 Credential ID를 Jenkinsfile/Job 설정과 정확히 일치시켜야 파이프라인이 동작한다.
-- Jenkins Job `mydiary-pipeline` (Pipeline): General > GitHub project 체크, Project url `https://git-codecommit.ap-northeast-2.amazonaws.com/v1/repos/mydiary-repo`; Build Triggers > `AWS SQS Trigger`, Queue URL `https://sqs.ap-northeast-2.amazonaws.com/594682333406/mydiary-event-queue`, AWS Credentials 선택 후 Test -> Success.
+- Jenkins Credential(강사 정리 총 3종): ① `AWS-CODECOMMIT` (Username with password, Username `fcuser-at-<AWS_ACCOUNT_ID>`, Password는 HTTPS Git 자격 증명 파일의 암호, Scope Global, Description `AWS-CODECOMMIT-CREDENTIALS`), ② SQS Trigger 테스트용 AWS Credentials (`AWS-ACCESS-CREDENTIALS`, IAM Access Key/Secret; 화면에 표시된 AKIA... 값은 마스킹), ③ Docker Hub 계정용 Credential(이전 챕터부터 사용). Jenkinsfile의 ECR 로그인 단계는 같은 Access Key를 `awsaccess` / `awssecret` Credential ID로 주입해 사용(이 둘의 생성 화면은 자료에 없음). 각 Credential ID를 Jenkinsfile/Job 설정과 정확히 일치시켜야 파이프라인이 동작한다.
+- Jenkins Job `mydiary-pipeline` (Pipeline): General > GitHub project 체크, Project url `https://git-codecommit.ap-northeast-2.amazonaws.com/v1/repos/mydiary-repo`; Build Triggers > `AWS SQS Trigger`, Queue URL `https://sqs.ap-northeast-2.amazonaws.com/<AWS_ACCOUNT_ID>/mydiary-event-queue`, AWS Credentials 선택 후 Test -> Success.
 
 ### 사용한 CLI
 Jenkins 이미지 Dockerfile (`~/fastcampus/jenkins/jenkins_image/Dockerfile`, Jenkins 컨테이너 내부에 Docker CLI 설치):
@@ -765,7 +771,7 @@ CodeCommit 저장소 clone (IAM HTTPS Git 자격 증명 사용):
 ```bash
 fcuser:~/jenkins_home/jenkins-mydiary-msa (master) $ git clone https://git-codecommit.ap-northeast-2.amazonaws.com/v1/repos/mydiary-repo
 # Cloning into 'mydiary-repo'...
-# Username for 'https://git-codecommit.ap-northeast-2.amazonaws.com/v1/repos/mydiary-repo': (fcuser-at-594682333406)
+# Username for 'https://git-codecommit.ap-northeast-2.amazonaws.com/v1/repos/mydiary-repo': (fcuser-at-<AWS_ACCOUNT_ID>)
 # Password for '...': (.csv의 비밀번호)
 ```
 Jenkinsfile (Declarative, Build -> Tag -> Push) - `vi Jenkinsfile`로 생성:
@@ -780,7 +786,7 @@ pipeline {
       }
       stage('Tag') {
          steps {
-            sh 'docker tag mydiary-repo:latest 594682333406.dkr.ecr.ap-northeast-2.amazonaws.com/mydiary-repo:1.0'
+            sh 'docker tag mydiary-repo:latest <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/mydiary-repo:1.0'
          }
       }
       stage('Push') {
@@ -789,8 +795,8 @@ pipeline {
             AWS_SECRET_ACCESS_KEY = credentials('awssecret')
          }
          steps {
-            sh 'aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin 594682333406.dkr.ecr.ap-northeast-2.amazonaws.com'
-            sh 'docker push 594682333406.dkr.ecr.ap-northeast-2.amazonaws.com/mydiary-repo:1.0'
+            sh 'aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com'
+            sh 'docker push <AWS_ACCOUNT_ID>.dkr.ecr.ap-northeast-2.amazonaws.com/mydiary-repo:1.0'
          }
       }
    }

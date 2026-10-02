@@ -1,3 +1,9 @@
+---
+title: "Part 03. Docker 리소스 제어 · 볼륨 · Dockerfile 로 이미지 만들기"
+parent: "Docker·K8s 인프라 구축 실습 순서"
+nav_order: 3
+---
+
 # Part 03. Docker 리소스 제어 · 볼륨 · Dockerfile 로 이미지 만들기
 
 > 원본: Docker컨테이너 빌드업! ch7(리소스 모니터링과 자원 할당), ch8(Docker volume), ch9(Dockerfile) — 자료 040~052
@@ -172,7 +178,7 @@ services:
     environment:
       #- GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
-      - GF_SECURITY_ADMIN_PASSWORD=pass123#
+      - GF_SECURITY_ADMIN_PASSWORD=<PASSWORD>
     networks:
       - dockermon
     depends_on:
@@ -334,7 +340,7 @@ docker inspect mem-test | grep -i memory
 ```
 ```bash
 # [3] docker update : 너무 작게(6MB) 줘서 죽은 MySQL 컨테이너의 한도 변경
-docker run -itd --memory=6m --name=mydb -e MYSQL_ROOT_PASSWORD=pass123# mysql:5.7-debian
+docker run -itd --memory=6m --name=mydb -e MYSQL_ROOT_PASSWORD=<PASSWORD> mysql:5.7-debian
 docker ps -a | grep mydb          # Exited (1)
 docker logs mydb                  # "mysqld failed while attempting to check config"
 
@@ -542,7 +548,7 @@ docker rm <컨테이너>
 ```
 ```bash
 # [2] 설정 파일 bind mount : redis.conf 에 requirepass 설정
-#  redis.conf 에 다음을 설정:  requirepass pass123#
+#  redis.conf 에 다음을 설정:  requirepass <PASSWORD>
 #  (redis.conf 는 curl 로 내려받음 — 다운로드 URL 은 자료 텍스트에 미표기)
 vi redis.conf             # 1036번 줄 부근 requirepass 항목에 값 입력
 docker run -d \
@@ -553,7 +559,7 @@ docker run -d \
 
 docker exec -it <redis컨테이너> redis-cli
 #  > set item1 docker1     → NOAUTH Authentication required.
-docker exec -it <redis컨테이너> redis-cli -a pass123#
+docker exec -it <redis컨테이너> redis-cli -a <PASSWORD>
 #  > set item1 docker1 / get item1 ...
 ```
 ```bash
@@ -615,7 +621,7 @@ docker volume inspect mydb-data     # Mountpoint: /var/lib/docker/volumes/mydb-d
 
 # 2. MySQL 컨테이너에 연결
 docker run -d --name mydb \
-  -e MYSQL_ROOT_PASSWORD=password1 \
+  -e MYSQL_ROOT_PASSWORD=<PASSWORD> \
   -e MYSQL_DATABASE=fastcampus \
   -v mydb-data:/var/lib/mysql \
   mysql:5.7-debian
@@ -635,7 +641,7 @@ sudo ls /var/lib/docker/volumes/mydb-data/_data      # No such file or directory
 ```bash
 # 4. anonymous volume (이름 없이 컨테이너 경로만 지정)
 docker run -d --name mydb \
-  -e MYSQL_ROOT_PASSWORD=password1 -e MYSQL_DATABASE=fastcampus \
+  -e MYSQL_ROOT_PASSWORD=<PASSWORD> -e MYSQL_DATABASE=fastcampus \
   -v /var/lib/mysql \
   mysql:5.7-debian
 

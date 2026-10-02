@@ -1,3 +1,9 @@
+---
+title: "Part 04. Docker Compose → Docker Swarm → Docker CI(GitHub Actions)로 인프라 구축하기"
+parent: "Docker·K8s 인프라 구축 실습 순서"
+nav_order: 4
+---
+
 # Part 04. Docker Compose → Docker Swarm → Docker CI(GitHub Actions)로 인프라 구축하기
 
 > 출처: 'CI/CD Docker 초격자' Ch10(docker compose) / Ch11(docker swarm cluster) / Ch12(docker CI) 요약 PDF 11개.
@@ -63,10 +69,10 @@ docker run -itd \
   --restart=always \
   -p 3306:3306 \
   --net=my-webdb-net \
-  -e MYSQL_ROOT_PASSWORD=password# \
+  -e MYSQL_ROOT_PASSWORD=<PASSWORD> \
   -e MYSQL_DATABASE=wpdb \
   -e MYSQL_USER=wpuser \
-  -e MYSQL_PASSWORD=wppassword \
+  -e MYSQL_PASSWORD=<PASSWORD> \
   mysql:8.0-debian
 
 # wordpress 컨테이너
@@ -80,7 +86,7 @@ docker run -itd \
   -e WORDPRESS_DB_HOST=mysql_app:3306 \
   -e WORDPRESS_DB_NAME=wpdb \
   -e WORDPRESS_DB_USER=wpuser \
-  -e WORDPRESS_DB_PASSWORD=wppassword \
+  -e WORDPRESS_DB_PASSWORD=<PASSWORD> \
   --link mysql_app:mysql \
   wordpress:5.7
 ```
@@ -95,7 +101,7 @@ mysql> show databases;                      # information_schema, mysql, perform
 mysql> use wpdb;
 mysql> show tables;                         # 설치 전: Empty set / 설치 후: wp_users, wp_posts 등 12개 테이블
 ```
-- **mysql 접속 시 만난 오류(실습 화면)**: 컨테이너 기동 직후 `mysql -uroot -p` 하면 `ERROR 2002 (HY000): Can't connect to local MySQL server through socket '/var/run/mysqld/mysqld.sock' (2)` (mysqld 서버가 아직 준비되지 않음 → 잠시 후 재시도), 이어서 `ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: YES)` (비밀번호 오입력 → `-e MYSQL_ROOT_PASSWORD=password#` 에 지정한 올바른 값으로 재시도)가 나온 뒤 접속 성공(MySQL 8.0.33). `show databases;` 결과는 information_schema, mysql, performance_schema, sys, wpdb(5 rows).
+- **mysql 접속 시 만난 오류(실습 화면)**: 컨테이너 기동 직후 `mysql -uroot -p` 하면 `ERROR 2002 (HY000): Can't connect to local MySQL server through socket '/var/run/mysqld/mysqld.sock' (2)` (mysqld 서버가 아직 준비되지 않음 → 잠시 후 재시도), 이어서 `ERROR 1045 (28000): Access denied for user 'root'@'localhost' (using password: YES)` (비밀번호 오입력 → `-e MYSQL_ROOT_PASSWORD=<PASSWORD>` 에 지정한 올바른 값으로 재시도)가 나온 뒤 접속 성공(MySQL 8.0.33). `show databases;` 결과는 information_schema, mysql, performance_schema, sys, wpdb(5 rows).
 - 브라우저: `http://<서버IP>:8888/wp-admin/install.php` 에서 WordPress 설치 → 설치 후 `show tables;` 로 테이블 12개 생성 확인.
 
 **(4) docker compose v2 설치/버전 업데이트** (플러그인 방식, 예: v2.18.1 → v2.19.1)
@@ -127,10 +133,10 @@ mydb:
   networks:
     - backend-net                    # --net=...
   environment:
-    MYSQL_ROOT_PASSWORD: password#   # -e MYSQL_ROOT_PASSWORD=...
+    MYSQL_ROOT_PASSWORD: <PASSWORD>   # -e MYSQL_ROOT_PASSWORD=...
     MYSQL_DATABASE: wpdb             # (슬라이드 확인) 나머지 환경변수도 동일하게 기술
     MYSQL_USER: wpuser
-    MYSQL_PASSWORD: wppassword
+    MYSQL_PASSWORD: <PASSWORD>
 
 # myweb 서비스 (wordpress)
 myweb:
@@ -149,7 +155,7 @@ myweb:
   environment:
     WORDPRESS_DB_HOST: mydb:3306     # 서비스명으로 DB 접속 (--link 불필요)
     WORDPRESS_DB_USER: wpuser        # (슬라이드 확인)
-    WORDPRESS_DB_PASSWORD: wppassword
+    WORDPRESS_DB_PASSWORD: <PASSWORD>
     WORDPRESS_DB_NAME: wpdb
 
 # 최상위 networks / volumes 선언
@@ -697,14 +703,14 @@ docker network ls
 
 # DB 실행
 docker run -d --name rolling-db --net fastapp-net -p 13306:3306 \
-  -e MYSQL_ROOT_PASSWORD=pass123# -e MYSQL_DATABASE=paperdb \
-  -e MYSQL_ROOT_HOST=% -e MYSQL_USER=user -e MYSQL_PASSWORD=user \
+  -e MYSQL_ROOT_PASSWORD=<PASSWORD> -e MYSQL_DATABASE=paperdb \
+  -e MYSQL_ROOT_HOST=% -e MYSQL_USER=user -e MYSQL_PASSWORD=<PASSWORD> \
   mysql:5.7-debian --character-set-server=utf8 --collation-server=utf8_general_ci
 
 # backend 실행 (DB 이름으로 접속)
 docker run -d --name rolling-server --net fastapp-net -p 8080:8080 \
   -e SPRING_DATASOURCE_URL=jdbc:mysql://rolling-db:3306/paperdb?serverTimezone=Asia/Seoul \
-  -e SPRING_DATASOURCE_USERNAME=user -e SPRING_DATASOURCE_PASSWORD=user \
+  -e SPRING_DATASOURCE_USERNAME=user -e SPRING_DATASOURCE_PASSWORD=<PASSWORD> \
   mydiary-back:1.0
 
 # frontend 실행
@@ -736,11 +742,11 @@ services:
     image: mysql:5.7-debian
     container_name: rolling-db
     environment:
-      MYSQL_ROOT_PASSWORD: pass123
+      MYSQL_ROOT_PASSWORD: <PASSWORD>
       MYSQL_DATABASE: paperdb
       MYSQL_ROOT_HOST: '%'
       MYSQL_USER: user
-      MYSQL_PASSWORD: user
+      MYSQL_PASSWORD: <PASSWORD>
     ports:
       - '13306:3306'
     networks:
@@ -761,7 +767,7 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://rolling-db:3306/paperdb?serverTimezone=Asia/Seoul
       SPRING_DATASOURCE_USERNAME: user
-      SPRING_DATASOURCE_PASSWORD: user
+      SPRING_DATASOURCE_PASSWORD: <PASSWORD>
     networks:
       - rolling-be-db
       - rolling-fe-be
@@ -788,13 +794,13 @@ curl localhost:3000            # <title>fastcampus My class diary</title> 확인
 
 # DB 데이터 확인
 docker exec -it rolling-db bash
-mysql -uroot -p                # compose 파일에 지정한 비밀번호(pass123) 입력
+mysql -uroot -p                # compose 파일에 지정한 비밀번호(<PASSWORD>) 입력
 mysql> show databases;
 mysql> use paperdb;
 mysql> show tables;
 mysql> select * from paper;    # 입력한 노트(id, content, nickname, password) 저장 확인
 ```
-- 주의(자료): docker run 때는 `MYSQL_ROOT_PASSWORD=pass123#`, compose 에서는 `pass123`(# 없음) — 실제 mysql 접속 시 compose 에 지정한 비밀번호를 입력해야 함. **강사가 실제로 이 실수를 함**: 처음에 `pass123#`으로 로그인 시도해 실패한 뒤 compose 파일에 적힌 값으로 다시 입력해 성공. 같은 이름의 값이라도 compose 파일에 적힌 실제 값을 항상 확인할 것.
+- 주의(자료): docker run 때는 `MYSQL_ROOT_PASSWORD=<PASSWORD>`, compose 에서는 `<PASSWORD>`(# 없음) — 실제 mysql 접속 시 compose 에 지정한 비밀번호를 입력해야 함. **강사가 실제로 이 실수를 함**: 처음에 `<PASSWORD>`으로 로그인 시도해 실패한 뒤 compose 파일에 적힌 값으로 다시 입력해 성공. 같은 이름의 값이라도 compose 파일에 적힌 실제 값을 항상 확인할 것.
 - DB 검증: `select * from paper;` → 컬럼 id, content, nickname, password (예: 1 | docker class | kevin | (마스킹)), `1 row in set`. `curl localhost:3000` 응답의 `<title>fastcampus My class diary</title>` 확인. 슬라이드 기준 compose `up` 출력은 `Running 5/3`(네트워크 2 + 컨테이너 3 Created) 후 `Attaching to rolling-db, rolling-front, rolling-server`.
 
 **5-3. `build:` 사용 (이미지 사전 빌드 없이 compose 가 빌드)** (`ch10/my-diary-3`)
@@ -812,7 +818,7 @@ mysql> select * from paper;    # 입력한 노트(id, content, nickname, passwor
     environment:
       SPRING_DATASOURCE_URL: jdbc:mysql://rolling-db:3306/paperdb?serverTimezone=Asia/Seoul
       SPRING_DATASOURCE_USERNAME: user
-      SPRING_DATASOURCE_PASSWORD: user
+      SPRING_DATASOURCE_PASSWORD: <PASSWORD>
     networks:
       - rolling-be-db
       - rolling-fe-be

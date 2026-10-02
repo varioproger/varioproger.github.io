@@ -1,3 +1,9 @@
+---
+title: "Part 09. Kubernetes 네임스페이스 · 보안 · 노드 운영"
+parent: "Docker·K8s 인프라 구축 실습 순서"
+nav_order: 9
+---
+
 # Part 09. Kubernetes 네임스페이스 · 보안 · 노드 운영
 
 > 출처: Kubernetes 기초&심화 (CKA&CKAD) CH10(Namespace 관리) ~ CH12(Node 유지관리), 자료 102~110.
