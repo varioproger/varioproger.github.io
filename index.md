@@ -16,3 +16,4 @@ permalink: /
 | [C# 방치형 RPG 서버 필수 이론](doc/csharp-idle-rpg-server-theory/) | 13부 | C#으로 모바일 방치형 RPG 게임 서버를 만들 때 필요한 선수 지식 |
 | [NestJS SaaS 백엔드 필수 이론](doc/nestjs-saas-essential-theory/) | 13 Part | Nest.js로 SaaS 백엔드를 구현할 때 필요한 이론 |
 | [Docker와 Kubernetes 필수 이론](doc/docker-k8s-essential-theory/) | 0~4부 · 26장 · 부록 2 | Docker와 Kubernetes로 인프라를 구축할 때 알아야 하는 기초 이론 |
+| [Linux·Docker·Kubernetes OS 구성 요소 필수 이론](doc/linux-docker-k8s-os-components/) | 3부 · 31장 · 부록 2 | 커널·컨테이너 커널 기능·쿠버네티스 컴포넌트가 어떻게 맞물려 동작하는지 |
