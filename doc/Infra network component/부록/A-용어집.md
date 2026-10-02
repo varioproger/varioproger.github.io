@@ -9,6 +9,8 @@ nav_order: 1
 
 이 책에 나오는 리눅스, Docker, 쿠버네티스 네트워크 용어를 분야별로 정리했다. 정의는 참고 자료(`linux`, `docker-fundamental`, `Kubernetes_Internals_Network_Guide`, `kubernetes-textbook-main`)의 설명을 따랐다. 괄호 안의 숫자는 이 용어를 주로 다루는 장이다.
 
+> **입문 책과의 관계** — 같은 용어의 한 줄 정의는 [입문 책 부록 A](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/부록/A-용어집.md)에 있다. 이 용어집은 입문 책과 겹치는 항목에서 내부 동작·수치·경계 조건·버전 변화처럼 입문 책에 없는 깊이를 적고, 입문 책에서 단순 반복이던 행은 그 깊이로 바꾸거나 줄였다.
+
 > **[보충]** 아래 항목 중 이름 뒤에 †를 붙인 것은 참고 자료가 용어를 쓰기만 하고 정의하지 않아, 입문자용으로 일반적인 의미를 한 줄로 보태 적은 것이다. 장 번호는 이 책의 목차(1~23장) 기준이며, 이 용어집은 각 장 본문이 아니라 원천 자료를 기준으로 작성했으므로 장 본문의 표현과 세부가 다를 수 있다.
 
 ## 리눅스 기반
@@ -50,7 +52,7 @@ nav_order: 1
 | **iptables-nft / iptables-legacy** | `iptables` 명령을 nftables 위에 얹은 호환 레이어 / 전통 구현. `update-alternatives`로 선택한다 (11장) |
 | **DNAT** | 목적지 주소를 바꿔치기하는 NAT. 포트 게시(`-p`)와 Service의 ClusterIP→Pod IP 변환이 모두 DNAT다 (5, 8, 17장) |
 | **MASQUERADE (SNAT)** | 브리지 대역에서 나가는 패킷의 출발지 IP를 호스트의 외부 인터페이스 IP로 치환하는 아웃바운드 NAT (5, 8장) |
-| **hairpin NAT** | 컨테이너/Pod가 자기 자신이 속한 게시 포트·Service를 호출할 때 SNAT(마스커레이드 표시)를 해 응답이 돌아오게 하는 처리 (8, 17장) |
+| **hairpin NAT** | 컨테이너/Pod가 자기 자신이 속한 게시 포트·Service를 호출해 패킷이 나갔던 인터페이스로 되돌아오는 경우. Docker는 과거 `docker-proxy`의 사용자 공간 중계로 우회했고(최신 배포판은 대부분 커널 DNAT만으로 처리), 쿠버네티스는 `KUBE-MARK-MASQ` 마크와 마스커레이드로 커널 안에서 처리한다 (8, 17장) |
 | **conntrack** | 커널의 연결 추적 테이블. DNAT된 연결을 기록해 응답 패킷을 역변환한다. 가득 차면 새 연결이 거부되며 `nf_conntrack_max`·`nf_conntrack_count`로 본다 (5, 23장) |
 | **IPVS** | IP Virtual Server. 커널의 해시 기반 L4 로드밸런서. `rr`/`lc`/`dh`/`sh`/`wrr` 등 스케줄러를 고를 수 있으나 SNAT 등은 iptables+ipset에 의존한다 (17장) |
 
@@ -162,14 +164,16 @@ nav_order: 1
 | **FQDN 규칙 / search / ndots** | `<service>.<namespace>.svc.<cluster-domain>` / `/etc/resolv.conf`의 확장 목록 / search 도메인을 먼저 시도할 점 개수 기준. 기본 `ndots:5`는 외부 도메인에도 불필요한 쿼리를 유발한다 (18장) |
 | **NodeLocal DNSCache** | 노드마다 두는 DNS 캐시 에이전트. 중앙 CoreDNS 부하와 UDP conntrack 경쟁 조건(대량 쿼리 시 간헐 `SERVFAIL`·정확히 5초 지연)을 완화한다 (18, 23장) |
 | **Ingress / IngressController / IngressClass** | L7 라우팅 규칙을 담은 데이터 / 그 리소스를 watch해 실제로 프록시하는 프로그램(대부분 kube-proxy를 우회해 Pod IP로 직접 프록시) / `ingressClassName` 불일치와 컨트롤러 미설치는 ADDRESS가 비는 원인 (19, 23장) |
-| **TLS 종료 / cert-manager** | HTTPS를 진입점에서 풀어 내부로 평문 전달 / 인증서 발급·갱신 자동화 도구 (19장) |
+| **TLS 종료 / cert-manager** | `tls` 필드에 `kubernetes.io/tls` Secret(Ingress와 같은 네임스페이스)을 지정하면 컨트롤러가 TLS를 풀고 컨트롤러→백엔드 구간은 기본 평문이다. Let's Encrypt 인증서는 90일마다 만료되어 cert-manager가 애노테이션 한 줄로 발급·갱신을 자동화하며, 와일드카드·내부망에는 DNS-01 챌린지가 필요하다. 앞단 LB가 이미 TLS를 종료했는데 `ssl-redirect`가 켜져 있으면 리다이렉트 루프가 난다 (19, 23장) |
 | **Gateway API** | `GatewayClass`(인프라 제공자) → `Gateway`(클러스터 운영자) → `HTTPRoute`/`GRPCRoute`/`TCPRoute`(앱 팀)로 역할을 분리한 차세대 라우팅 API (19장) |
 | **서비스 메시 / 사이드카 / mTLS** | 동서 트래픽을 다루는 인프라 계층. 사이드카(보통 Envoy)를 뮤테이팅 어드미션 웹훅으로 주입하고 iptables 리다이렉트로 모든 트래픽을 거치게 한다. mTLS·재시도·서킷 브레이커·트래픽 분할을 코드 수정 없이 얻는다 (20장) |
 | **앰비언트 메시 / ztunnel / waypoint** | 사이드카 대신 노드 공유 프록시(ztunnel, L4/mTLS)와 선택적 네임스페이스 프록시(waypoint, L7)로 구현하는 메시 (20장) |
-| **남북 / 동서 트래픽** | 클러스터 외부↔내부 / 서비스↔서비스 트래픽 (19, 20장) |
-| **NetworkPolicy** | 정책이 없으면 전허용, 하나라도 선택되면 그 방향은 기본 거부. 여러 정책은 합집합(OR)이며 명시적 Deny가 없다. 스펙일 뿐 시행은 CNI의 몫(kube-proxy는 시행하지 않음) (21장) |
-| **`from`/`to` 항목의 AND/OR** | 리스트의 별도 항목은 OR, 한 항목 안의 여러 필드는 AND. 하이픈 위치가 의미를 바꾼다 (21장) |
-| **AdminNetworkPolicy / BaselineAdminNetworkPolicy** | 네임스페이스 정책보다 우선하는 절대 규칙(Deny/Allow, `Pass`로 위임) / 아무도 정하지 않았을 때의 기본값. 둘 다 v1alpha1이다 (21장) |
+| **남북 / 동서 트래픽** | 클러스터 외부↔내부(Ingress·Gateway API가 맡는다) / 서비스↔서비스(서비스 메시가 맡고, NetworkPolicy가 허용 범위를 정한다) 트래픽 (19, 20, 21장) |
+| **NetworkPolicy / `policyTypes`** | 정책이 선택한 Pod의 `policyTypes` 방향만 기본 거부로 바뀌고(`Ingress`만 쓰면 egress는 전허용), 한 연결은 출발 Pod의 egress와 도착 Pod의 ingress 양쪽이 허용해야 통과한다. 여러 정책은 합집합이며 명시적 Deny도 순서도 없고 `ingress: []`로도 다른 정책의 허용을 못 막는다. 스펙일 뿐 시행은 CNI의 몫(kube-proxy는 시행하지 않음) (21장) |
+| **`from`/`to` 항목의 AND/OR / `ipBlock`** | 리스트의 별도 항목은 OR, 한 항목 안의 여러 필드는 AND. `namespaceSelector` 단독은 그 네임스페이스의 모든 Pod, `podSelector: {}`는 같은 네임스페이스 전체. `ipBlock`은 CIDR 기준(`except`로 일부 제외)이며 NAT와 실제 경로의 영향을 확인한다 (21장) |
+| **AdminNetworkPolicy / BaselineAdminNetworkPolicy** | 네임스페이스 정책보다 우선하는 절대 규칙(Deny/Allow, `Pass`로 위임) / 아무도 정하지 않았을 때의 기본값. 둘 다 v1alpha1이고 `tier` 필드로 통합한 `ClusterNetworkPolicy`(v1alpha2)가 후속으로 제안된 상태다 (21장) |
+| **GlobalNetworkPolicy / 표준의 한계 4가지** | Calico의 클러스터 전역 정책(거부 규칙·`order` 우선순위). 표준 NetworkPolicy는 L3/L4만, deny·우선순위 없음, 클러스터 전역 없음, egress 도메인 이름 불가라는 한계가 있고 CNI 확장·AdminNetworkPolicy가 메운다 (21장) |
+| **HNC / Kyverno `generate`** | 부모 네임스페이스의 NetworkPolicy 등을 자식으로 전파(`HNCConfiguration`의 `mode: Propagate`) / 새 Namespace 생성 시 `default-deny-ingress`를 자동 생성. 기본 거부를 네임스페이스마다 자동 배포하는 방법 (21장) |
 
 ### eBPF와 Cilium
 
@@ -195,4 +199,4 @@ nav_order: 1
 
 > **[보충]** 두 가지 원천 충돌을 반영했다. (1) IPVS: textbook은 대규모 환경의 대책으로 IPVS를 소개하지만 Kubernetes_Internals_Network_Guide는 KEP-5495에 따른 폐기 경로를 설명한다. 더 상세한 후자를 따랐다. (2) Cilium과 conntrack: textbook은 "자체 연결 추적이라 자유롭다"고 쓰고 Internals Guide는 "일반 Pod 간·외부 연결은 여전히 conntrack을 거친다"고 쓴다. 후자를 따랐다.
 
-*원문 근거: linux/06-네트워크.md (6.1~6.3, 6.7, 6.10); docker-fundamental/02_격리의_기초.md, 11~18장 각 장의 핵심 요약과 본문; Kubernetes_Internals_Network_Guide/03-네트워크/13~19장 요약, 부록/B-용어집.md (네트워크 절); kubernetes-textbook-main/05-내부-동작-파헤치기/19·23장, 03-애플리케이션-노출과-데이터/09·10·11장; kubernetes-qustion-book/02_심화/16_EKS의_네트워크_스토리지_확장.md (VPC CNI); †표시 항목은 [보충]*
+*원문 근거: linux/06-네트워크.md (6.1~6.3, 6.7, 6.10); docker-fundamental/02_격리의_기초.md, 11~18장 각 장의 핵심 요약과 본문; Kubernetes_Internals_Network_Guide/03-네트워크/13~19장 요약, 부록/B-용어집.md (네트워크 절); kubernetes-textbook-main/05-내부-동작-파헤치기/19·23장, 03-애플리케이션-노출과-데이터/09·10·11장; kubernetes-qustion-book/02_심화/16_EKS의_네트워크_스토리지_확장.md (VPC CNI), 07_통신_오브젝트.md·10_보안과_확장_구조.md (NetworkPolicy 판정 모델); kubernetes-textbook-main/04-클러스터-운영/13-네임스페이스와-멀티테넌시.md (13.5, 13.6), 18-워크로드-보안.md (18.4, 18.6), 03-애플리케이션-노출과-데이터/11-인그레스와-외부-트래픽-라우팅.md (11.3 요약, 11.7); †표시 항목은 [보충]*

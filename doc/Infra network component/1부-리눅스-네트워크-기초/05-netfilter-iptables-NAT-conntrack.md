@@ -18,16 +18,16 @@ nav_order: 5
 
 > **한 문장:** netfilter는 커널의 패킷 경로에 걸린 훅(PREROUTING·INPUT·FORWARD·OUTPUT·POSTROUTING)이고 iptables/nftables는 그 훅에 규칙을 거는 도구이며, 목적지를 바꾸는 DNAT는 라우팅 결정 앞(PREROUTING)에서, 출발지를 바꾸는 MASQUERADE는 나가는 길(POSTROUTING)에서 일어나고, 되돌아오는 패킷은 conntrack이 기억한 변환 정보로 자동 복원된다.
 
-1. **패킷은 훅을 지나고, 규칙은 거기에 걸려 있다** — 훅 위치가 곧 "무엇을 할 수 있는가"를 정한다. 라우팅 결정보다 앞(PREROUTING)이면 목적지를 바꿔 경로 자체를 바꿀 수 있다.
-2. **NAT는 두 방향, 시점이 대칭이다** — DNAT(목적지 변경, PREROUTING, 들어오는 길) ↔ SNAT/MASQUERADE(출발지 변경, POSTROUTING, 나가는 길). Docker `-p`와 쿠버네티스 Service는 DNAT, 컨테이너·Pod의 외부 통신은 MASQUERADE다.
-3. **conntrack이 연결 단위로 기억한다** — DNAT 규칙은 연결의 첫 패킷에만 적용되고, 같은 흐름의 나머지 패킷과 응답 방향은 conntrack 테이블이 처리한다. 그래서 확률 분배도 "연결 단위"이고, 테이블이 가득 차면 새 연결이 거부된다.
+1. **패킷은 훅을 지나고, 규칙은 거기에 걸려 있다** — 훅 위치가 곧 "무엇을 할 수 있는가"를 정한다. 호스트 자신으로 가는 패킷은 INPUT, 컨테이너로 가는 패킷은 FORWARD를 지나므로, 어느 훅에 규칙을 거느냐에 따라 같은 호스트의 두 방화벽 도구가 서로의 트래픽을 못 보거나 우회한다.
+2. **NAT는 체인 사슬이고, SNAT는 마크가 정한다** — DNAT(PREROUTING)↔MASQUERADE(POSTROUTING)의 시점 대칭은 입문 책에서 배웠다. 심화 지점은 쿠버네티스가 이를 `KUBE-SERVICES → KUBE-SVC-*(확률) → KUBE-SEP-*(DNAT)`로 풀고, 출발지 변환은 `KUBE-MARK-MASQ`가 남긴 `0x4000` 마크를 `KUBE-POSTROUTING`이 보고 적용한다는 것이다.
+3. **conntrack이 연결 단위로 기억하고, 그 비용이 한계다** — DNAT 규칙은 연결의 첫 패킷에만 적용되고, 같은 흐름의 나머지 패킷과 응답 방향은 conntrack 테이블이 처리한다. 그래서 확률 분배도 "연결 단위"이고, 테이블이 가득 차면 새 연결이 조용히 드롭된다. NAT 자체가 conntrack이라는 추가 단계이고, 임시 포트 고갈이라는 별개의 벽이 같은 증상을 낸다.
 4. **규칙은 순서대로 읽히고, 백엔드는 둘이다** — iptables 규칙은 위에서부터 선형 탐색이라 규칙이 폭증하면 느려진다. 요즘 `iptables` 명령은 대개 nftables 위의 호환 레이어(`iptables-nft`)이고, 같은 시스템에 legacy와 nft가 섞이면 서로의 규칙을 못 본다.
 
 **이 장의 학습 목표**
 
-- netfilter 훅과 iptables의 테이블·체인이 패킷 경로의 어디에 걸리는지 설명할 수 있다.
-- DNAT와 MASQUERADE가 각각 어느 시점에 무엇을 바꾸는지, 왜 시점이 다른지 말할 수 있다.
-- `conntrack`이 응답 패킷을 되돌리는 원리와, 테이블 고갈이 장애로 나타나는 모양을 안다.
+- netfilter 훅과 iptables의 테이블·체인이 패킷 경로의 어디에 걸리는지, 그리고 INPUT과 FORWARD의 차이가 방화벽 우회로 이어지는 이유를 설명할 수 있다.
+- Docker가 만드는 체인(`DOCKER`·`DOCKER-USER`·`DOCKER-ISOLATION-STAGE-1/2`)이 호스트 표준 체인에 어떻게 끼어드는지 말할 수 있다.
+- `conntrack`이 응답 패킷을 되돌리는 원리와, 테이블 고갈·NAT 비용·임시 포트 고갈이 장애로 나타나는 모양을 구분한다.
 - Docker와 kube-proxy가 만드는 규칙 체인(`DOCKER`, `KUBE-SERVICES`→`KUBE-SVC-*`→`KUBE-SEP-*`)을 읽을 수 있다.
 - iptables-legacy / iptables-nft / nftables의 관계를 알고, 규칙 수가 문제가 되는 이유를 설명할 수 있다.
 
@@ -43,12 +43,12 @@ nav_order: 5
 | 방화벽 설정(ufw 등) | iptables/nftables 규칙 | 둘 다 같은 커널 netfilter 규칙이다 | 도구마다 같은 체인 공간에 규칙을 넣어 서로 **조율 없이 겹칠 수 있다**(→ 8장·11장) |
 
 > **🧭 읽기 전에 (2분)** — 아래 질문에 추측으로 답을 적고 정독하며 고쳐 쓰세요.
-> 1. 외부에서 호스트 8080으로 들어온 패킷의 목적지를 컨테이너 IP로 바꾸려면, 라우팅 결정 전과 후 중 언제 바꿔야 할까? 왜?
+> 1. 호스트에 `ufw`로 "이 포트 차단"을 걸어도 컨테이너로 가는 트래픽이 그대로 통과하는 일이 있다. 두 규칙은 패킷 경로의 어떤 지점에서 갈라질까?
 > 2. 목적지를 바꿔서 보낸 요청의 응답은, 클라이언트가 보기엔 어떻게 원래 주소에서 온 것처럼 되돌아올까?
-> 3. 컨테이너가 인터넷으로 나갈 때 출발지 IP는 왜 바꿔야 할까? 안 바꾸면 무슨 일이 생길까?
+> 3. conntrack 테이블이 가득 차지 않았는데도 새 연결이 실패한다면, 노드에서 또 어떤 자원이 바닥났을 수 있을까?
 > 4. 같은 Service에 백엔드가 3개일 때, 패킷마다 무작위로 보내면 TCP 연결은 어떻게 될까?
 > 5. 연결 추적 테이블에 상한이 있다면, 어떤 워크로드가 그 상한을 먼저 칠까?
-> **처리법:** 🛠 실습 `iptables-save -t nat | grep -i docker`, `iptables -t nat -L POSTROUTING -n -v`, `conntrack -L`, `conntrack -C`, `sysctl net.netfilter.nf_conntrack_max` → 바로 실행 · 🗺 관계도 PREROUTING→라우팅 결정→FORWARD→POSTROUTING 흐름과 DNAT(앞)↔MASQUERADE(뒤)의 대칭을 직접 그려 보기 · 📦 카드로 `KUBE-SERVICES`/`KUBE-SVC-*`/`KUBE-SEP-*`, `0x4000`, `p_i = 1/(N-i+1)`, `nf_conntrack_max` · 유추 비판 "규칙 목록 = if 체인"이 어디서 깨지는지(선형 탐색·훅 위치) 적어 보기
+> **처리법:** 🛠 실습 `iptables-save -t nat | grep -i docker`, `iptables -t nat -L DOCKER -n --line-numbers`, `conntrack -L`, `conntrack -C`, `sysctl net.netfilter.nf_conntrack_max`, `sysctl net.netfilter.nf_conntrack_count`, `sysctl net.ipv4.ip_local_port_range`, `ss -s` → 바로 실행 · 🗺 관계도 호스트 자신행(INPUT)과 컨테이너행(FORWARD)이 갈라지는 지점, Docker 체인이 표준 체인에 끼는 자리를 직접 그려 보기 · 📦 카드로 `KUBE-SERVICES`/`KUBE-SVC-*`/`KUBE-SEP-*`, `0x4000`, `p_i = 1/(N-i+1)`, `nf_conntrack_max` · 유추 비판 "규칙 목록 = if 체인"이 어디서 깨지는지(선형 탐색·훅 위치) 적어 보기
 
 ---
 
@@ -74,52 +74,37 @@ nftables에서는 체인이 걸릴 훅을 `input`, `forward`, `output`, `prerout
 | `INPUT` (filter) | 호스트 자신으로 들어오는 패킷. `ufw` 같은 도구가 규칙을 두는 곳 |
 | `POSTROUTING` (nat) | 나가는 패킷. 출발지 변환(MASQUERADE) |
 
-> **[보충]** 위 표는 원천의 여러 절(docker 12.3·12.4·15.4·16.2, k8s-internals 15.1)에 흩어져 있는 체인 설명을 이 책에서 한 표로 모은 것이다. 원천은 `PREROUTING`/`OUTPUT`이 `DOCKER`·`KUBE-SERVICES`로 점프하고, `FORWARD`가 DNAT 후 패킷을 판단하며, `POSTROUTING`에 MASQUERADE가 있고, `ufw` 등은 관리자가 설정한 규칙을 흔히 `INPUT` 체인이나 자신의 관리 체인에 넣는다고 설명한다. 각 체인의 "호스트 자신으로 들어오는 패킷", "로컬 프로세스가 보낸 패킷" 같은 한 줄 의미는 원천의 서술을 요약한 것이다(`INPUT`은 컨테이너로 향하는 트래픽 상당수가 `INPUT`이 아니라 `FORWARD`를 통과한다는 16.2절 설명에서 도출).
+> **[보충]** 위 표는 원천의 여러 절(docker 12.3·12.4·15.4·16.2, k8s-internals 15.1)에 흩어진 체인 설명을 이 책이 한 표로 모은 것이다. 각 체인의 한 줄 의미("호스트 자신으로 들어오는 패킷" 등)는 원천 서술의 요약이며, `INPUT` 쪽은 컨테이너행 트래픽 상당수가 `INPUT`이 아니라 `FORWARD`를 통과한다는 16.2절 설명에서 도출했다.
 
-### 1.3 들어오는 패킷의 순서 (원천 도식)
+### 1.3 같은 호스트의 두 방화벽은 서로 다른 훅에 걸린다
 
-```
-(외부에서 온 패킷, dst=host_ip:8080)
-        │
-PREROUTING (nat) ── DOCKER 체인으로 점프
-        │
-DNAT: dst를 container_ip:80 으로 변경
-        │
-라우팅 결정 (목적지가 이제 컨테이너 IP이므로 docker0 브리지 방향으로)
-        │
-FORWARD (filter) ── ACCEPT/DROP 판단
-        │
-docker0 브리지 → veth → 컨테이너 eth0:80
-```
+**한 줄 요약:** 호스트 자신으로 오는 패킷은 INPUT을, 컨테이너로 가는 패킷은 FORWARD를 지나므로, 규칙을 어느 훅에 거느냐가 방화벽이 "보이는" 범위를 정한다.
 
-**왜 PREROUTING인가.** 커널은 목적지 주소를 컨테이너 IP로 **바꾼 뒤에** "이 패킷을 어디로 보낼지"를 판단한다. 라우팅 결정 후에 바꾸면 이미 "호스트로 들어온 패킷"으로 경로가 정해져 버린다. 그래서 목적지를 바꾸는 규칙은 라우팅 결정보다 앞선 PREROUTING에 걸린다.
+> **입문 책에서 배운 것:** `-p 8080:80`의 패킷은 PREROUTING에서 DNAT된 뒤 라우팅 결정, FORWARD, docker0, veth를 거쳐 컨테이너로 간다. DNAT가 라우팅 결정보다 앞서야 커널이 바뀐 목적지로 경로를 판단한다. ([입문 책 11장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/2부-컨테이너와-Docker/11-Docker-네트워크.md))
 
-> **[보충]** "라우팅 결정 후에 바꾸면 이미 경로가 정해져 버린다"는 문장은 원천(15.4)이 말한 "DNAT가 라우팅 결정보다 앞선 PREROUTING 단계에서 일어나므로, 커널은 바꾼 뒤에 다시 판단한다"를 이 책이 풀어 쓴 설명이다.
+- `ufw`·`firewalld` 같은 호스트 방화벽은 규칙을 흔히 `INPUT` 체인이나 자신의 관리 체인에 넣는다. 그런데 컨테이너로 향하는 트래픽 상당수는 `INPUT`이 아니라 `FORWARD`를 통과한다.
+- Docker는 `FORWARD` 체인에 `DOCKER` 체인으로 점프하는 규칙을 다른 규칙보다 앞쪽에 삽입한다. 그래서 `ufw`로 막아 둔 포트가 컨테이너 게시와 함께 뚫리는 일이 생겼다.
+- 원천은 이를 버그라기보다 "컨테이너 네트워킹용 규칙"과 "호스트 방화벽 정책용 규칙"이 **같은 netfilter 체인 공간을 조율 없이 나눠 쓰던 구조 문제**라고 본다. 많은 배포판의 기본 정책이 `ACCEPT`이고 Docker가 이 관대한 정책에 의존해 온 것도 배경이다. (Engine 28의 대응은 [11장](../2부-Docker-네트워크/11-Docker-방화벽-iptables에서-nftables로.md))
 
 ---
 
 ## 코어 2. NAT는 두 방향, 시점이 대칭이다
 
-### 2.1 DNAT와 MASQUERADE
+### 2.1 DNAT와 MASQUERADE — 복습
 
-**한 줄 요약:** DNAT는 목적지를 PREROUTING에서, MASQUERADE는 출발지를 POSTROUTING에서 바꾼다.
+> **입문 책에서 배운 것:** DNAT(목적지 변경)는 PREROUTING에서, MASQUERADE(출발지 변경)는 POSTROUTING에서 일어난다. `-p`와 Service는 DNAT, 컨테이너의 외부 통신은 MASQUERADE이고 응답은 conntrack이 되돌린다. ([입문 책 11장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/2부-컨테이너와-Docker/11-Docker-네트워크.md), [입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md))
 
-| 구분 | DNAT (Destination NAT) | MASQUERADE (아웃바운드 NAT) |
-|---|---|---|
-| 바꾸는 것 | 목적지 주소 | 출발지 주소 |
-| 체인 | `PREROUTING` (호스트 자신에서 접속하는 경우 `OUTPUT`) | `POSTROUTING` |
-| 대표 사례 | `docker run -p 8080:80`, 쿠버네티스 Service(ClusterIP·NodePort) | 컨테이너 → 외부, `externalTrafficPolicy: Cluster`의 SNAT |
-| 결과 | 목적지가 컨테이너/Pod IP:포트가 된다 | 출발지가 호스트(노드) IP가 된다 |
+호스트 자신에서 접속하는 패킷은 PREROUTING이 아니라 `OUTPUT` 체인에서 같은 `DOCKER` 체인으로 점프한다(1.2의 표). 이 장은 그 위에 얹힌 체인 구조와 마크를 읽는다. Docker 쪽은 2.2절, 쿠버네티스 쪽은 2.3·2.4절이다. 아웃바운드 규칙은 `iptables -t nat -L POSTROUTING -n -v | grep -i MASQUERADE`로 본다.
 
-컨테이너가 외부로 나갈 때는 컨테이너의 기본 게이트웨이(브리지 IP, 예: 172.17.0.1)를 거쳐 호스트 커널의 IP 포워딩 경로로 올라가고, `nat` 테이블 `POSTROUTING` 체인의 MASQUERADE 규칙이 출발지 IP를 호스트의 외부 인터페이스 IP로 치환한다.
+### 2.2 Docker가 호스트 netfilter에 끼워 넣는 체인들
 
-```bash
-iptables -t nat -L POSTROUTING -n -v | grep -i MASQUERADE
-```
+**한 줄 요약:** iptables 경로의 Docker는 `DOCKER`·`DOCKER-USER`·`DOCKER-ISOLATION-STAGE-1/2` 같은 자기 체인을 만들어 호스트의 표준 체인(`FORWARD`, `nat`의 `PREROUTING`/`OUTPUT` 등)에 점프 규칙으로 끼워 넣는다.
 
-### 2.2 Docker의 DNAT 규칙 읽기
+> **입문 책에서 배운 것:** `-p`를 주면 `nat` 테이블의 `DOCKER` 체인에 `DNAT --to-destination <컨테이너IP>:80` 규칙이 생기고 `iptables-save -t nat | grep -i docker`로 볼 수 있다. ([입문 책 11장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/2부-컨테이너와-Docker/11-Docker-네트워크.md))
 
-`docker run -d --name web -p 8080:80 nginx:latest` 후 `iptables-save -t nat | grep -i docker`를 실행하면, `DOCKER`라는 체인이 정의되어 있고 그 안에 `-p tcp --dport 8080 -j DNAT --to-destination 172.17.0.2:80`과 비슷한 규칙이 보인다. `PREROUTING` 체인과 (호스트 자신에서 접속하는 경우를 위한) `OUTPUT` 체인 양쪽에서 이 `DOCKER` 체인으로 점프하는 규칙도 함께 보인다. (자세한 경로는 [8장](../2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md))
+- 그 결과 Docker 체인과 관리자·다른 도구의 체인이 **체인 이름 공간과 점프 순서를 공유**한다. 평가 순서는 규칙이 삽입된 순서에 달려 있어, 두 도구가 서로를 모른 채 넣고 빼면 쉽게 뒤바뀐다.
+- `DOCKER-USER`는 Docker 체인보다 앞서 평가되도록 비워 둔 관리자용 훅이다(nftables 백엔드에서의 대체는 [11장](../2부-Docker-네트워크/11-Docker-방화벽-iptables에서-nftables로.md)).
+- 줄 번호로 순서를 확인한다(원천 실습): `sudo iptables -t nat -L DOCKER -n --line-numbers` 후 `curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:18080`이 200이면 DNAT 경로가 정상이다. 패킷 경로 전체는 [8장](../2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md).
 
 ### 2.3 쿠버네티스 Service의 DNAT 체인
 
@@ -225,11 +210,6 @@ docker exec k8s-guide-worker sysctl net.netfilter.nf_conntrack_max
 dmesg | grep -i "nf_conntrack: table full"
 ```
 
-```bash
-docker exec k8s-guide-worker sh -c \
-  'echo "current: $(conntrack -C), max: $(sysctl -n net.netfilter.nf_conntrack_max)"'
-```
-
 원천은 **80%를 넘으면 위험**하다고 한다. 원인은 짧은 연결이 매우 많은 워크로드, 타임아웃이 긴 UDP 연결, 연결 누수다. 대책(원천의 예시값)은 다음과 같다.
 
 ```bash
@@ -241,6 +221,24 @@ sysctl -w net.netfilter.nf_conntrack_udp_timeout=30
 (다른 절의 예는 `nf_conntrack_max=1048576`, `nf_conntrack_tcp_timeout_established=3600`이다. 값은 예시이며 환경에 맞춰 정한다.) 쿠버네티스에서 DNS 5초 지연도 conntrack의 UDP 경쟁 조건 때문이라고 원천은 설명한다([18장](../3부-쿠버네티스-네트워크/18-DNS와-서비스-디스커버리.md)). Cilium의 eBPF 데이터플레인은 자체 연결 추적을 쓰므로 이 문제에서 자유롭다고 한다([22장](../3부-쿠버네티스-네트워크/22-eBPF-데이터플레인과-Cilium.md)).
 
 > **[보충]** [2장](02-소켓-TCP-포트-DNS-기초.md)에서 다루는 소켓 상태(TIME_WAIT 등)는 프로세스가 가진 소켓의 상태이고, conntrack 엔트리는 위 `conntrack -L` 출력처럼 netfilter가 따로 유지하는 테이블이라는 구분은 이 책이 독자(소켓 서버 개발자)를 위해 덧붙인 설명이다. 원천은 `nf_conntrack_tcp_timeout_time_wait` 같은 conntrack 쪽 타임아웃 튜닝 값만 보여 준다.
+
+### 3.3 conntrack의 비용은 고갈만이 아니다
+
+**한 줄 요약:** NAT는 conntrack이라는 추가 단계를 거치고, 고갈은 오류 대신 조용한 드롭으로 나타나며, 임시 포트 고갈이 같은 증상을 낸다.
+
+- **상시 비용.** DNAT/SNAT 자체가 conntrack을 거치는 추가 처리 단계라, 초당 연결 수가 매우 많은 워크로드(원천은 NFV 같은 처리량 중심 경우)에서는 오버헤드가 무시할 수 없다. 대부분의 웹 앱은 체감하지 못한다. `host` 모드는 이 NAT 단계가 사라진다([10장](../2부-Docker-네트워크/10-macvlan-ipvlan-host-none-오버레이.md)).
+- **조용한 드롭.** 연결 생성·종료가 매우 빠른 워크로드(connection churn)에서 테이블이 가득 차면 새 연결이 **조용히 드롭**된다. 서버 로그가 아니라 커널 로그에서야 보인다.
+- **eBPF로도 다 사라지지 않는다.** 소켓 레벨 로드밸런싱은 Service 경유 트래픽의 conntrack 의존을 줄이지만 일반 Pod 간·외부행 연결은 여전히 거친다([22장](../3부-쿠버네티스-네트워크/22-eBPF-데이터플레인과-Cilium.md)).
+- **상한을 무작정 올리지 않는다.** 항목 하나가 커널 메모리를 쓰므로 동시 연결 수 추세를 보며 조정한다. 현재 사용량은 `nf_conntrack_count`다.
+- **임시 포트 고갈.** 같은 목적지로 짧은 아웃바운드 연결을 매우 많이 열면 임시 포트가 바닥나 신규 연결이 실패한다. keep-alive·커넥션 풀링으로 완화하거나 포트 범위 확장을 검토한다.
+
+```bash
+sysctl net.netfilter.nf_conntrack_count        # 현재 사용량
+sysctl net.ipv4.ip_local_port_range            # 임시 포트 범위
+ss -s                                          # 소켓 요약
+```
+
+원천의 진단 플로차트는 DNS → 노드 간 연결성 → Service → 정책 → **노드 자원** 순이다. conntrack부터 의심하면 훨씬 흔한 원인(DNS)을 지나치기 쉽다([23장](../4부-진단/23-네트워크-장애-진단.md)).
 
 ---
 
@@ -280,27 +278,7 @@ kubectl get --raw /metrics 2>/dev/null | grep kubeproxy_sync_proxy_rules_duratio
 
 ### 4.3 nftables의 설계 목표
 
-nftables는 이 문제들을 다시 설계한 netfilter 프로젝트의 후속 프레임워크이며, 핵심 아이디어는 세 가지다.
-
-- **단일 프레임워크:** IPv4·IPv6·브리지·ARP를 하나의 `nft` 명령과 하나의 규칙 표현으로 다룬다. `ip`/`ip6`를 동시에 다루는 `inet` 패밀리를 쓰면 규칙을 한 번만 쓰면 된다.
-- **커널 내 가상 머신:** 규칙을 작은 바이트코드로 컴파일해 커널에 통째로 내려보낸다.
-- **세트(set)와 맵(map):** "이 IP 목록에 포함되는가" 같은 조건을 개별 규칙 N개 대신 하나의 세트로 표현하고, 세트는 커널 내부에서 해시 테이블이나 트리로 관리되어 규칙 수가 늘어도 순회 비용이 선형으로 늘지 않는다.
-
-같은 의도의 규칙을 두 문법으로 쓰면 다음과 같다(TCP 22번 허용).
-
-```bash
-# iptables 문법
-iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-```
-
-```bash
-# nftables 문법 (nft 스크립트)
-nft add table inet filter
-nft add chain inet filter input { type filter hook input priority 0 \; }
-nft add rule inet filter input tcp dport 22 accept
-```
-
-nftables는 테이블과 체인을 사용자가 선언하면서 어떤 훅(input, forward, output, prerouting, postrouting)에 걸릴지, 같은 훅에 체인이 여럿일 때 어떤 순서(priority 숫자가 작을수록 먼저)로 평가될지를 명시한다. 이 명시성 덕분에 Docker 전용 테이블을 다른 도구의 테이블과 이름 공간부터 분리할 수 있다([11장](../2부-Docker-네트워크/11-Docker-방화벽-iptables에서-nftables로.md)).
+nftables는 이 약점을 다시 설계한 후속 프레임워크로, 핵심은 **단일 프레임워크**(IPv4·IPv6·브리지·ARP를 하나의 `nft`와 `inet` 패밀리로), **커널 내 가상 머신**(규칙을 바이트코드로 컴파일해 통째로 적재), **세트(set)와 맵(map)**(해시·트리로 관리되어 규칙 수가 늘어도 순회 비용이 선형으로 늘지 않음) 세 가지다. 테이블과 체인이 걸릴 훅·priority(숫자가 작을수록 먼저)를 명시하는 덕분에 Docker 전용 테이블을 다른 도구와 이름 공간부터 분리할 수 있다. 같은 규칙의 두 문법 비교(TCP 22 허용)와 Docker 백엔드는 [11장](../2부-Docker-네트워크/11-Docker-방화벽-iptables에서-nftables로.md)에서 본다.
 
 ---
 
@@ -308,12 +286,12 @@ nftables는 테이블과 체인을 사용자가 선언하면서 어떤 훅(input
 
 ### 체크리스트
 
-- [ ] DNAT는 `PREROUTING`(라우팅 결정 전), MASQUERADE는 `POSTROUTING`에서 일어난다. 이 둘의 시점이 대칭이라는 것을 안다.
-- [ ] Docker 포트 게시는 `nat` 테이블의 `DOCKER` 체인 DNAT 규칙이고, `iptables-save -t nat | grep -i docker`로 확인한다.
+- [ ] 컨테이너로 가는 트래픽은 `INPUT`이 아니라 `FORWARD`를 지난다. `ufw`(INPUT 쪽) 규칙이 닿지 않을 수 있고, Docker 체인은 `FORWARD` 앞쪽에 점프 규칙으로 끼어 있다.
+- [ ] Docker 규칙은 `iptables-save -t nat | grep -i docker`와 `iptables -t nat -L DOCKER -n --line-numbers`로 확인하고, `DOCKER`·`DOCKER-USER`·`DOCKER-ISOLATION-STAGE-1/2` 체인이 표준 체인과 순서를 공유한다는 것을 기억한다.
 - [ ] 쿠버네티스 Service는 `KUBE-SERVICES` → `KUBE-SVC-*` → `KUBE-SEP-*`(DNAT) 순서로 읽는다. `i`번째 규칙의 확률은 `1/(N-i+1)`.
 - [ ] 응답 주소 복원은 conntrack이 한다. 연결 분배도 "첫 패킷에서 결정, conntrack이 유지"라 연결 단위다.
 - [ ] 클라이언트 IP가 노드 IP로 보이면 `0x4000` 마크·`KUBE-POSTROUTING`·`--cluster-cidr`를 확인한다.
-- [ ] 간헐 타임아웃이면 `conntrack -C`와 `nf_conntrack_max`를 비교(80% 초과 위험), `dmesg`의 `nf_conntrack: table full`을 본다.
+- [ ] 간헐 타임아웃이면 `conntrack -C`와 `nf_conntrack_max`를 비교(80% 초과 위험), `dmesg`의 `nf_conntrack: table full`을 본다. 상한은 동시 연결 수의 추세를 보며 올리고, conntrack이 여유로운데도 실패하면 `ip_local_port_range`·`ss -s`로 임시 포트 고갈을 본다.
 - [ ] 규칙이 이상하게 보이지 않으면 `update-alternatives --display iptables`로 legacy/nft 혼재를 의심한다.
 
 ### 시나리오로 확인하기
@@ -323,7 +301,7 @@ nftables는 테이블과 체인을 사용자가 선언하면서 어떤 훅(input
 
    <details markdown="1"><summary>답 확인</summary>
 
-   의심 부품은 노드 커널의 conntrack 테이블이다. 짧은 연결이 매우 많거나 UDP 타임아웃이 긴 워크로드에서 테이블이 가득 차면 새 연결이 거부된다. `conntrack -C`로 현재 엔트리 수, `sysctl net.netfilter.nf_conntrack_max`로 상한을 비교(80% 초과면 위험)하고, 원천의 예시처럼 `nf_conntrack_max`를 늘리고 `nf_conntrack_tcp_timeout_time_wait`·`nf_conntrack_udp_timeout`를 줄이는 방향으로 조정한다. 연결 누수 여부도 본다. → 코어 3
+   의심 부품은 노드 커널의 conntrack 테이블이다. 짧은 연결이 매우 많거나 UDP 타임아웃이 긴 워크로드에서 테이블이 가득 차면 새 연결이 거부된다. `conntrack -C`로 현재 엔트리 수, `sysctl net.netfilter.nf_conntrack_max`로 상한을 비교(80% 초과면 위험)하고, 원천의 예시처럼 `nf_conntrack_max`를 늘리고 `nf_conntrack_tcp_timeout_time_wait`·`nf_conntrack_udp_timeout`를 줄이는 방향으로 조정한다. 연결 누수 여부도 본다. 상한을 무작정 올리지 말고 동시 연결 수의 추세를 보며 조정하고, `conntrack -C`가 여유로운데도 실패하면 `sysctl net.ipv4.ip_local_port_range`와 `ss -s`로 임시 포트 고갈을 확인해 keep-alive·커넥션 풀링으로 연결을 재사용한다. → 코어 3 (3.2, 3.3)
 
    </details>
 
@@ -356,25 +334,25 @@ nftables는 테이블과 체인을 사용자가 선언하면서 어떤 훅(input
 ```
 코어 1 netfilter = 커널 ____ , iptables = 사용자 공간 ____
   훅 5개: ____ ____ ____ ____ ____
-  들어오는 순서: PREROUTING → ____ → FORWARD → docker0 → veth → eth0
-코어 2 DNAT: 바꾸는 것 ____ / 체인 ____ (라우팅 결정 전)
-       MASQUERADE: 바꾸는 것 ____ / 체인 ____
+  호스트 자신행 → ____ 체인(ufw 흔한 자리) / 컨테이너행 → ____ 체인(Docker 점프 규칙이 앞쪽에)
+코어 2 Docker 체인: DOCKER / ____ (관리자용 선행 훅) / DOCKER-____-STAGE-1/2
   K8s: KUBE-SERVICES → KUBE-SVC-* (확률 p_i = ____) → KUBE-SEP-* (____)
   출발지 변환 마크 ____ / 체인 KUBE-____
 코어 3 응답 복원 = ____ / DNAT 규칙은 연결의 ____ 패킷에만
-  확인: conntrack -L / conntrack -C / sysctl ____
-  고갈 증상: 새 연결 ____, 로그: dmesg "nf_conntrack: ____"
+  확인: conntrack -L / conntrack -C / sysctl ____ / sysctl ____(현재 사용량)
+  고갈 증상: 새 연결 ____ 드롭, 로그: dmesg "nf_conntrack: ____"
+  다른 벽: ____ 포트 고갈 → sysctl net.ipv4.____ / ss -s
 코어 4 iptables 약점 3: ____ 탐색 / 도구 ____ / legacy-nft ____
   nftables 3: 단일 ____ / 커널 ____ / ____(set)·맵
 ```
 
 ### 2. 인출 질문
 
-1. DNAT가 라우팅 결정 전(PREROUTING)에 일어나야 하는 이유는?
+1. 호스트의 `ufw` 규칙이 컨테이너로 가는 트래픽에 닿지 않을 수 있는 이유는? Docker가 만드는 체인은 무엇이 있는가?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   커널은 목적지를 컨테이너 IP로 바꾼 뒤에 "어디로 보낼지"를 판단한다. 그 결과 패킷이 docker0 브리지 방향으로 라우팅되어 FORWARD → 브리지 → veth → 컨테이너로 간다. → 코어 1 (1.3)
+   `ufw` 같은 도구는 규칙을 흔히 `INPUT` 체인이나 자신의 관리 체인에 넣는데, 컨테이너로 향하는 트래픽 상당수는 `INPUT`이 아니라 `FORWARD`를 통과하고, Docker는 `FORWARD` 앞쪽에 `DOCKER` 체인으로 점프하는 규칙을 끼워 넣기 때문이다. 두 도구가 같은 체인 공간을 조율 없이 나눠 쓰는 구조 문제다. Docker는 `DOCKER`, `DOCKER-USER`(관리자용 선행 훅), `DOCKER-ISOLATION-STAGE-1/2` 체인을 만든다. → 코어 1 (1.3), 코어 2 (2.2)
 
    </details>
 
@@ -414,7 +392,7 @@ nftables는 테이블과 체인을 사용자가 선언하면서 어떤 훅(input
 
    <details markdown="1"><summary>답 확인</summary>
 
-   새 연결이 거부된다. `conntrack -C`와 `sysctl net.netfilter.nf_conntrack_max`를 비교(80% 초과 위험)하고 `dmesg | grep -i "nf_conntrack: table full"`로 확인한다. → 코어 3 (3.2)
+   새 연결이 조용히 드롭된다. `conntrack -C`와 `sysctl net.netfilter.nf_conntrack_max`를 비교(80% 초과 위험)하고 `dmesg | grep -i "nf_conntrack: table full"`로 확인한다. → 코어 3 (3.2, 3.3)
 
    </details>
 
@@ -431,6 +409,14 @@ nftables는 테이블과 체인을 사용자가 선언하면서 어떤 훅(input
    <details markdown="1"><summary>답 확인</summary>
 
    커널에 규칙을 적재하는 내부 표현이 달라 서로의 규칙을 인식하지 못하고, 정책이 꼬여도 원인을 알기 어렵다. `update-alternatives --display iptables`로 확인한다. → 코어 4 (4.1)
+
+   </details>
+
+9. conntrack 고갈과 임시 포트 고갈은 어떻게 다르고, 각각 무엇으로 확인하는가?
+
+   <details markdown="1"><summary>답 확인</summary>
+
+   conntrack 고갈은 커널 연결 추적 테이블이 가득 차 새 연결이 드롭되는 것으로 `conntrack -C`/`nf_conntrack_count`와 `nf_conntrack_max`, `dmesg`로 본다. 임시 포트 고갈은 같은 목적지로 짧은 아웃바운드 연결을 매우 많이 열 때 노드의 임시 포트가 바닥나는 것으로 `net.ipv4.ip_local_port_range`와 `ss -s`로 본다. 후자는 keep-alive·커넥션 풀링으로 연결을 재사용해 완화한다. → 코어 3 (3.3)
 
    </details>
 
@@ -458,4 +444,4 @@ nftables는 테이블과 체인을 사용자가 선언하면서 어떤 훅(input
 
 ---
 
-*원문 근거: docker-fundamental/12_브리지_네트워크_심화.md (12.3 통신 경로, 12.4 포트 게시, 12.6 실제 규칙 확인); docker-fundamental/15_DNS와_서비스_디스커버리_포트_매핑의_내부_동작.md (15.4 포트 매핑 경로); docker-fundamental/16_방화벽_백엔드의_전환.md (16.1 iptables의 한계, nftables 설계 목표, 같은 규칙 두 문법, 16.2 FORWARD 체인 충돌); Kubernetes_Internals_Network_Guide/03-네트워크/15-kube-proxy-데이터플레인-해부.md (15.1 체인 계층·확률·헤어핀·NodePort·갱신 방식·DNAT와 conntrack); kubernetes-textbook-main/05-내부-동작-파헤치기/23-CNI와-대규모-네트워크-트러블슈팅.md (23.4 체인 구조·conntrack, 23.5 iptables 규칙 폭증·conntrack 고갈)*
+*원문 근거: docker-fundamental/12_브리지_네트워크_심화.md (12.3 통신 경로, 12.4 포트 게시, 12.6 실제 규칙 확인); docker-fundamental/14_macvlan_ipvlan_host-none_네트워크_모드.md (14.1 NAT의 conntrack 비용, 14.5 host 모드 성능 이점); docker-fundamental/15_DNS와_서비스_디스커버리_포트_매핑의_내부_동작.md (15.4 포트 매핑 경로, 실습 4 `iptables -t nat -L DOCKER`); docker-fundamental/16_방화벽_백엔드의_전환.md (16.1 iptables의 한계, nftables 설계 목표, 같은 규칙 두 문법, 16.2 FORWARD 체인 충돌·기본 ACCEPT 정책, 16.3 DOCKER/DOCKER-USER/DOCKER-ISOLATION 체인 계열); Kubernetes_Internals_Network_Guide/03-네트워크/19-eBPF-데이터플레인과-네트워크-트러블슈팅.md (19.3 노드 레벨 자원 고갈·진단 순서, 19.5 conntrack 크기 튜닝); Kubernetes_Internals_Network_Guide/03-네트워크/15-kube-proxy-데이터플레인-해부.md (15.1 체인 계층·확률·헤어핀·NodePort·갱신 방식·DNAT와 conntrack); kubernetes-textbook-main/05-내부-동작-파헤치기/23-CNI와-대규모-네트워크-트러블슈팅.md (23.4 체인 구조·conntrack, 23.5 iptables 규칙 폭증·conntrack 고갈)*

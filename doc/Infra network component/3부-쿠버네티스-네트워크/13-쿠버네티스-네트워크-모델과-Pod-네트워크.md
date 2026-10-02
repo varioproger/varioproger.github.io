@@ -19,14 +19,14 @@ nav_order: 13
 > **한 문장:** 쿠버네티스는 "모든 Pod는 고유 IP를 갖고 NAT 없이 서로 통신한다"는 규칙(IP-per-Pod)만 정하고, 그 규칙을 지키는 실제 배선은 CNI 플러그인이 하며, Pod 하나의 네트워크 네임스페이스는 pause 컨테이너가 소유해 그 안의 컨테이너들이 IP와 포트 공간을 함께 쓴다.
 
 1. **IP-per-Pod는 "포트를 전역 자원에서 해방"하는 계약이다** — 모든 Pod가 NAT 없이 서로·노드와 통신하고, 자기가 보는 자기 IP와 남이 보는 IP가 같다. 대가는 클러스터 규모의 평평한 네트워크를 누군가 만들어야 한다는 것이고, 그 일을 쿠버네티스가 아닌 CNI 플러그인에 위임한다.
-2. **Pod는 pause가 소유한 네트워크 네임스페이스를 컨테이너들이 공유하는 것이다** — net(IP·포트·localhost)은 공유하고 mnt·pid는 분리한다. 네임스페이스를 앱이 아니라 pause가 쥐고 있으므로 앱이 죽어도 IP가 유지된다. `hostNetwork: true` Pod만 예외다.
+2. **Pod는 pause가 만든 네임스페이스에 컨테이너들이 `setns`로 합류하는 것이다** — "공유"의 실체는 `/proc/<pid>/ns/*`의 inode 번호가 같다는 것이고(net·ipc·uts 공유, mnt·pid 분리), pause는 PID 1로 좀비를 수거하며 CRI `RunPodSandbox` 안에서 만들어진다. 앱이 죽어도 IP가 유지된다. `hostNetwork: true` Pod만 예외다.
 3. **IP 대역은 셋(노드·Pod·Service)이고, "네트워크 문제"는 네 가지 문제의 합이다** — Pod 네트워크, 이름, Service 전달, 외부 진입은 담당 부품이 다르다. 이 책 3부는 이 지도를 한 층씩 연다.
 
 **이 장의 학습 목표**
 
 - 쿠버네티스 네트워크 모델의 요구사항과, 이 모델을 선택한 이유(포트 충돌 제거)를 설명한다.
 - 노드 CIDR·Pod CIDR·Service CIDR 세 대역을 구분하고, ClusterIP가 실재하지 않는 주소임을 안다.
-- pause 컨테이너가 필요한 이유와 하는 일을 설명하고, Pod를 "손으로 조립"하는 단계가 CNI의 일과 어떻게 대응하는지 안다.
+- pause의 두 가지 일과 CRI 호출, `setns` 합류와 inode 비교를 설명한다. Pod를 "손으로 조립"하는 단계가 CNI의 일과 어떻게 대응하는지 안다.
 - "통신 장애"를 네 가지 문제(Pod 네트워크 / 이름 / Service 전달 / 진입)로 쪼개 의심 부품을 고른다.
 
 ## C++·TCP 서버 경험에서 출발하기
@@ -52,18 +52,18 @@ nav_order: 13
 
 ## 코어 1. IP-per-Pod는 "포트를 전역 자원에서 해방"하는 계약이다
 
-### 1.1 네 가지 규칙
+### 1.1 세 규칙과 한 예외 — 경계 조건
 
 **한 줄 요약:** 모든 Pod는 NAT 없이 다른 모든 Pod 및 노드와 통신하고, 자기가 보는 IP와 남이 보는 IP가 같다. `hostNetwork` Pod만 예외다.
 
-쿠버네티스 네트워크 모델은 구현이 아니라 **요구사항**이다. 원천 두 곳이 같은 내용을 다르게 번호 매겨 설명한다.
+> **입문 책에서 배운 것:** IP-per-Pod 네 규칙과, 그 덕에 같은 노드의 nginx 셋이 모두 80번을 쓴다는 것. → [입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md)
 
-> **[보충]** 원천끼리 4번째 규칙의 정의가 다르다. `Kubernetes_Internals_Network_Guide`는 4번째를 "hostNetwork 예외"로, `kubernetes-textbook-main`은 4번째를 "Pod가 보는 자기 IP = 남이 보는 IP"로 센다. 이 책은 더 최신·상세한 앞의 원천을 따라 아래 세 규칙 + hostNetwork 예외로 정리하되, 두 원천이 말하는 내용은 모두 포함한다.
+> **[보충]** 원천끼리 4번째 규칙의 정의가 다르다. `Kubernetes_Internals_Network_Guide`는 4번째를 "hostNetwork 예외"로, `kubernetes-textbook-main`은 4번째를 "Pod가 보는 자기 IP = 남이 보는 IP"로 센다. 이 책은 앞의 원천을 따라 세 규칙 + hostNetwork 예외로 정리한다.
 
-1. **모든 Pod는 NAT 없이 다른 모든 Pod와 통신할 수 있다.** 노드가 같든 다르든 상관없다.
-2. **모든 노드는 NAT 없이 모든 Pod와 통신할 수 있다.** kubelet의 헬스체크, 노드에서 실행되는 에이전트가 Pod IP로 직접 접근할 수 있어야 한다.
-3. **Pod가 스스로 인식하는 자신의 IP는, 다른 Pod가 그 Pod를 바라볼 때 쓰는 IP와 동일하다.** Pod 내부에서든 외부에서든 주소 체계가 갈라지지 않는다. (모든 Pod가 고유한 IP를 갖는다는 것이 전제다.)
-4. **`hostNetwork: true`인 Pod는 예외다.** 별도의 네트워크 네임스페이스 없이 노드의 네트워크 네임스페이스를 그대로 공유한다. 이 Pod의 IP는 곧 노드의 IP이고, 포트도 노드와 공유한다.
+1. **Pod ↔ Pod: NAT 없음.** 노드가 같든 다르든 상관없다.
+2. **노드 → Pod: NAT 없음.** kubelet의 헬스체크, 노드에서 실행되는 에이전트가 Pod IP로 직접 접근할 수 있어야 한다.
+3. **Pod가 인식하는 자기 IP = 다른 Pod가 보는 그 Pod의 IP.** Pod 내부에서든 외부에서든 주소 체계가 갈라지지 않는다.
+4. **예외 — `hostNetwork: true`.** 별도의 네트워크 네임스페이스 없이 노드의 네트워크 네임스페이스를 그대로 공유한다. 이 Pod의 IP는 곧 노드의 IP이고, 포트도 노드와 공유한다.
 
 ```
 ┌─────────────────────────── 노드 A ───────────────────────────┐
@@ -82,30 +82,18 @@ nav_order: 13
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-이 모델을 **"IP-per-Pod"** 라고 부른다. 각 Pod가 컨테이너가 아니라 마치 하나의 독립된 호스트처럼 자기만의 IP와 포트 공간을 갖는다는 뜻이다.
+### 1.2 포트 매핑이 떠넘기던 네 가지 비용
 
-### 1.2 왜 이 모델인가 — 포트 충돌의 제거
+**한 줄 요약:** 포트 매핑은 포트를 노드 전역 자원으로 만들고 그 비용을 앱·디스커버리·스케줄러에 퍼뜨린다. IP-per-Pod는 이를 한꺼번에 없애는 대신 평평한 네트워크를 요구한다.
 
-**한 줄 요약:** 포트 매핑 방식에서는 포트가 노드의 전역 자원이지만, IP-per-Pod에서는 Pod마다 IP가 있어 포트 충돌 자체가 없다.
+> **입문 책에서 배운 것:** 포트 매핑에서는 포트가 전역 자원이라 nginx마다 8080·8081로 나눠야 한다. → [입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md), Docker의 포트 매핑 내부는 [8장](../2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md)
 
-초기 Docker 단일 호스트 모델의 기본값은 **포트 매핑 기반 NAT**였다. 컨테이너는 `docker0` 브리지의 사설 주소(`172.17.0.0/16` 대역)를 받고, 외부에서 접근하려면 `-p 8080:80`처럼 호스트 포트를 컨테이너 포트에 매핑해야 했다([8장](../2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md)). 이 방식의 문제는 단일 호스트를 벗어나는 순간 증폭된다.
+입문 책이 "포트 충돌"로 요약한 문제를 원천은 **네 가지 비용**으로 나눈다. 설계자들은 이 복잡도를 **애플리케이션 개발자에게 떠넘기지 않기로** 했다(앱이 VM 위에서처럼 동작).
 
-```
-전통적 포트 매핑 모델                     쿠버네티스 IP-per-Pod 모델
-─────────────────────────              ─────────────────────────
-호스트 A                                 노드 A
- nginx-1  → 호스트:8080                   Pod(nginx-1) 10.244.1.2:80
- nginx-2  → 호스트:8081                   Pod(nginx-2) 10.244.1.3:80
- nginx-3  → 호스트:8082                   Pod(nginx-3) 10.244.1.4:80
-                                          → 포트 충돌 자체가 존재하지 않는다
-문제:
-· 포트가 노드 단위의 전역 자원이 된다
-· 애플리케이션이 "내가 몇 번 포트로 노출됐는지" 알아야 한다
-· 서비스 디스커버리가 "호스트IP:포트" 쌍을 추적해야 한다
-· 스케줄러가 포트 충돌까지 고려해 배치해야 한다
-```
-
-쿠버네티스 설계자들은 이 복잡도를 **애플리케이션 개발자에게 떠넘기지 않기로** 했다. 모든 Pod가 클러스터 전체에서 유일한 IP를 받고 표준 포트(80, 5432, 6379 등)를 그대로 쓸 수 있다면, 애플리케이션은 **VM 위에서 돌 때와 같은 방식으로 동작**한다. 자기 포트를 몰라도 되고, 같은 이미지를 몇 개 띄우든 설정이 바뀌지 않는다.
+- 포트가 노드 단위의 전역 자원이 된다.
+- 애플리케이션이 "내가 몇 번 포트로 노출됐는지" 알아야 한다.
+- 서비스 디스커버리가 "호스트IP:포트" 쌍을 추적해야 한다.
+- 스케줄러가 포트 충돌까지 고려해 배치해야 한다.
 
 대가는 분명하다. **평평한 라우팅 가능 네트워크를 클러스터 규모로 만들어야 한다.** 노드가 3개든 3,000개든 이 평평함이 유지돼야 한다. 그 평평함을 누가, 어떻게 만드는지가 3부의 [14장](14-CNI-스펙과-IPAM.md)·[15장](15-CNI-플러그인과-패킷-경로.md)의 주제다.
 
@@ -119,23 +107,13 @@ nav_order: 13
 
 ## 코어 2. Pod는 pause가 소유한 네트워크 네임스페이스를 컨테이너들이 공유하는 것이다
 
-### 2.1 pause 컨테이너 — 네임스페이스의 소유자
+### 2.1 pause의 정체 — PID 1, 그리고 누가 어떤 RPC로 만드는가
 
-**한 줄 요약:** Pod의 네트워크 네임스페이스를 앱 컨테이너가 아니라 아무 일도 안 하는 pause가 쥐고 있어서, 앱이 죽어도 IP가 유지된다.
+**한 줄 요약:** pause는 시그널을 기다리며 잠든 채 네임스페이스를 유지하고 좀비를 수거하는 아주 짧은 프로그램이며, 런타임이 CRI `RunPodSandbox` 안에서 만든다.
 
-Pod에 컨테이너 A와 B가 있고 네트워크를 공유해야 한다. 누가 네임스페이스를 소유해야 할까?
+> **입문 책에서 배운 것:** pause가 NET·IPC·UTS를 소유해 앱이 재시작돼도 Pod IP가 유지된다. → [입문 책 15장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/3부-쿠버네티스-핵심/15-Pod.md)
 
-```
-[방안 1] A가 소유하고 B가 합류
-  → A가 크래시하면 네임스페이스가 사라진다
-  → B의 네트워크도 끊기고, Pod IP가 바뀐다  ✗
-
-[방안 2] 별도의 "빈" 프로세스가 소유
-  → A, B가 모두 죽었다 살아나도 네임스페이스는 유지
-  → Pod IP가 보존된다  ✓
-```
-
-**방안 2의 그 빈 프로세스가 pause**다. 인프라 컨테이너(infra container) 또는 샌드박스라고도 부른다. 소스가 놀랍도록 짧다.
+pause(인프라 컨테이너·샌드박스라고도 부른다)의 소스는 놀랍도록 짧다.
 
 ```c
 /* pause.c — 핵심만 */
@@ -154,15 +132,30 @@ int main() {
 
 pause는 두 가지 일을 한다. ① 네임스페이스를 살아 있게 유지한다(프로세스가 살아 있어야 네임스페이스가 유지된다). ② PID 1로서 좀비 프로세스를 수거한다. 두 번째는 `shareProcessNamespace: true`인 Pod에서 pause가 PID 1이 되는 이유다.
 
-이 네임스페이스는 누가 만드는가. kubelet은 컨테이너 런타임에 CRI로 `RunPodSandbox`를 요청한다. 샌드박스는 "Pod의 네트워크 네임스페이스를 쥐고 있는 단위"이고, 이 요청 **안에서** 런타임이 pause 컨테이너를 만들고 CNI를 호출한다([14장](14-CNI-스펙과-IPAM.md)).
+이 네임스페이스는 누가 만드는가. kubelet은 컨테이너 런타임에 CRI(gRPC)로 `RunPodSandbox`를 요청한다. 샌드박스는 "Pod의 네트워크 네임스페이스를 쥐고 있는 단위"이고, 이 요청 **안에서** 런타임이 pause 컨테이너를 만들고 CNI를 호출한다([14장](14-CNI-스펙과-IPAM.md)). CRI의 `RuntimeService`는 샌드박스와 컨테이너를 **별개의 RPC 묶음**으로 나눠 둔다.
+
+- 샌드박스 RPC: `RunPodSandbox`(pause 컨테이너 생성 + 이 안에서 CNI 호출) / `StopPodSandbox` / `RemovePodSandbox` 등
+- 컨테이너 RPC: `CreateContainer` / `StartContainer` / `StopContainer` 등
+
+> **[보충]** 원천은 RPC 이름만 나열하고 호출 순서·역할 구분을 적지 않는다. 샌드박스가 앱 컨테이너보다 먼저 생기고 샌드박스 RPC가 Pod 네트워크 단위의 수명을 다룬다는 것은 이 책의 해석이다.
 
 > **[보충]** C++ 소켓에 빗대면 pause는 "`socket()`으로 만든 리스닝 소켓의 fd를 대신 쥐고 있는 부모 프로세스"에 가깝다. 다만 pause가 쥐는 것은 소켓 하나가 아니라 인터페이스·IP·라우팅 테이블 전체(네트워크 네임스페이스)다. 이 비유는 원천에 없는 학습용이다.
 
-### 2.2 무엇을 공유하고 무엇을 분리하는가
+### 2.2 "공유"의 커널 실체 — setns와 inode 번호
 
-**한 줄 요약:** 같은 Pod의 컨테이너는 net(IP·포트·localhost)·ipc·uts를 공유하고 mnt·pid는 분리한다.
+**한 줄 요약:** 컨테이너가 pause의 네임스페이스에 "합류"하는 것은 `setns` 시스템콜이고, 공유 여부는 `/proc/<pid>/ns/*`의 inode 번호가 같은지로 확인한다.
 
-노드에서 샌드박스(pause)와 앱 컨테이너의 네임스페이스를 비교해 직접 확인할 수 있다.
+> **입문 책에서 배운 것:** NET·IPC·UTS 공유, MNT·PID 분리, 파일은 볼륨으로만 공유. → [입문 책 15장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/3부-쿠버네티스-핵심/15-Pod.md)
+
+"공유"가 커널에서 정확히 무엇인지는 원천(`kubernetes-textbook-main` 19.1)이 정리한다. 네임스페이스를 다루는 시스템콜은 셋뿐이다.
+
+| 시스템콜 | 하는 일 | 명령행 도구 |
+|---|---|---|
+| `clone(CLONE_NEW*)` | 새 네임스페이스와 함께 프로세스 생성 | `unshare --fork` |
+| `unshare(CLONE_NEW*)` | 현재 프로세스를 새 네임스페이스로 분리 | `unshare` |
+| `setns(fd, type)` | **기존 네임스페이스에 합류** | `nsenter` |
+
+원천은 "**`setns`가 Pod의 핵심**"이라고 정리한다. 네임스페이스는 `/proc/<pid>/ns/`(`ls -l /proc/self/ns/`, `lsns -t net`)에 `net:[4026531840]` 형식으로 보이고, **대괄호 안 숫자가 inode 번호이며 두 프로세스가 같은 번호면 같은 네임스페이스를 공유한다.** 노드에서 샌드박스(pause)와 앱 컨테이너를 비교한다.
 
 ```bash
 # 샌드박스(pause) 목록
@@ -181,7 +174,14 @@ APP_PID=$(crictl inspect <CONTAINER_ID> | jq -r '.info.pid')
 ls -l /proc/$APP_PID/ns/
 ```
 
-두 출력을 비교하면 `net`, `ipc`, `uts`는 inode 번호가 같고(공유), `mnt`, `pid`는 다르다(분리). 그 결과 한 Pod의 컨테이너들은 **같은 IP, 같은 포트 공간**을 쓴다. 그래서 서로 `localhost`로 통신할 수 있고, 같은 포트를 두 컨테이너가 동시에 쓸 수는 없다.
+두 출력을 비교하면 `net`, `ipc`, `uts`는 inode 번호가 같고(공유), `mnt`, `pid`는 다르다(분리). 런타임이 OCI 런타임(runc)에 넘기는 `config.json`에서 네임스페이스 설정을 직접 볼 수도 있다.
+
+```bash
+docker exec k8s-guide-worker sh -c \
+  'find /run/containerd -name config.json 2>/dev/null | head -1 | xargs cat' | jq '.linux.namespaces, .linux.resources.memory'
+```
+
+(출력 예는 원천에 없다.) 결과적으로 한 Pod의 컨테이너들은 **같은 IP, 같은 포트 공간**을 쓴다. 그래서 서로 `localhost`로 통신할 수 있고, 같은 포트를 두 컨테이너가 동시에 쓸 수는 없다.
 
 > **[보충]** "같은 포트를 동시에 쓸 수 없다"는 점은 원천이 한 문장으로 직접 적은 것이 아니라, "같은 IP, 같은 포트 공간" 공유와 서술에서 이끌어 낸 귀결이다. 같은 노드의 다른 Pod끼리는 netns가 달라 같은 포트를 써도 충돌하지 않는다는 점과 대비해 기억하면 된다.
 
@@ -235,7 +235,7 @@ ip netns exec pod-lab unshare --mount --pid --fork --mount-proc \
   bash -c 'curl -s localhost:8080 | head -5; ps aux'
 ```
 
-마지막 단계가 pause의 존재 이유를 보여 준다.
+앞 절의 inode 비교는 손으로 만든 Pod에도 적용된다. `ip netns pids pod-lab`로 찾은 PID마다 `readlink /proc/$p/ns/net`은 같고 `ns/pid`·`ns/mnt`는 달라야 한다. 원천은 "net은 같고 pid/mnt는 다르다. 이것이 Pod의 정의다"라고 정리한다. 마지막 단계가 pause의 존재 이유를 보여 준다.
 
 ```bash
 # container-a를 죽인다
@@ -252,6 +252,7 @@ ip netns exec pod-lab ip addr show eth0 | grep inet
 |---|---|---|
 | `ip netns add pod-lab` (빈 네임스페이스) | 런타임이 `RunPodSandbox`로 만드는 pause 샌드박스 | 이 장 |
 | veth 만들기, IP·게이트웨이 설정 | CNI 플러그인 (`ADD` 호출) | [14장](14-CNI-스펙과-IPAM.md) |
+| `ip netns exec pod-lab unshare --mount --pid ...` (net 합류, mnt·pid 새로) | 각 앱 컨테이너의 격리와 합류 (`setns`) | 이 장 |
 | 노드 간 경로 만들기 | 같은 CNI 플러그인이 고른 방식(오버레이/라우팅) | [15장](15-CNI-플러그인과-패킷-경로.md) |
 
 > **[보충]** 이 실습은 이 책을 쓰는 환경(Windows)에서는 실행되지 않았고, 원천의 명령을 그대로 옮긴 것이다. 리눅스 머신에서 직접 실행해 확인하길 권한다. 정리는 `ip netns delete pod-lab`, `ip link delete veth-host`, 추가한 MASQUERADE 규칙 삭제 순이다.
@@ -266,15 +267,11 @@ ip netns exec pod-lab ip addr show eth0 | grep inet
 
 ## 코어 3. IP 대역은 셋이고, "네트워크 문제"는 네 가지 문제의 합이다
 
-### 3.1 IP 대역 세 가지 — ClusterIP는 실재하지 않는다
+### 3.1 IP 대역 세 가지 — 어디서 확인하고 누가 쪼개나
 
-**한 줄 요약:** 노드 CIDR(실재), Pod CIDR(CNI가 라우팅), Service CIDR(가상)을 구분하는 것이 네트워크 이해의 출발점이다.
+**한 줄 요약:** 세 대역의 정의는 입문 책에 있고, 이 장은 실제 클러스터에서 값을 읽는 위치와 Pod 대역이 노드별로 쪼개지는 경로를 잇는다.
 
-| 대역 | 예시 | 할당 대상 | 라우팅 가능? |
-|---|---|---|---|
-| **노드 CIDR** | `192.168.1.0/24` | 물리/가상 머신 | 실제 네트워크에 존재 |
-| **Pod CIDR** | `10.244.0.0/16` | Pod | CNI가 라우팅 (오버레이 또는 실제 라우팅) |
-| **Service CIDR** | `10.96.0.0/12` | Service의 ClusterIP | **실재하지 않는 가상 IP** |
+> **입문 책에서 배운 것:** 노드·Pod·Service CIDR의 구분과, ClusterIP가 ping에 응답하지 않는다는 것. → [입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md)
 
 ```bash
 # 확인
@@ -283,7 +280,7 @@ docker exec k8s-guide-control-plane grep -E 'service-cluster-ip-range|cluster-ci
   /etc/kubernetes/manifests/kube-apiserver.yaml /etc/kubernetes/manifests/kube-controller-manager.yaml
 ```
 
-> **ClusterIP는 어떤 인터페이스에도 붙어 있지 않다.** Service의 IP로 ping을 보내면 응답이 없다. 그런 IP를 가진 장비가 존재하지 않기 때문이다. 각 노드의 iptables(또는 IPVS) 규칙이 그 IP로 향하는 패킷을 실제 Pod IP로 바꿔치기한다. ([16장](16-Service와-EndpointSlice.md), [17장](17-kube-proxy-데이터플레인.md))
+첫 명령의 `.spec.podCIDR`이 노드별 Pod 대역이다. 이 값을 누가 클러스터 CIDR에서 잘라 기록하는지와 노드 수 상한 계산은 [14장](14-CNI-스펙과-IPAM.md) 코어 3이다. 둘째 명령은 kube-apiserver·kube-controller-manager 매니페스트에서 `service-cluster-ip-range`와 `cluster-cidr`를 grep한다. 원천은 이 명령의 출력 예를 주지 않으므로 어느 값이 어느 매니페스트에 있는지는 직접 확인한다. ClusterIP를 실제 Pod IP로 바꾸는 규칙은 [16장](16-Service와-EndpointSlice.md), [17장](17-kube-proxy-데이터플레인.md)에서 이어진다.
 
 ### 3.2 통신은 네 가지 서로 다른 문제다
 
@@ -380,7 +377,9 @@ docker exec k8s-guide-control-plane grep -E 'service-cluster-ip-range|cluster-ci
   구현 주체: 쿠버네티스 ( ? ), ( ? ) 플러그인이 구현
 
 [코어 2] Pod 네임스페이스의 소유자 = ( ? ) 컨테이너 (하는 일 2가지: 네임스페이스 유지 / ( ? ) 수거)
-  공유: net / ( ? ) / ( ? )     분리: ( ? ) / ( ? )
+  샌드박스 생성: kubelet →(CRI) ( ? ) → 런타임이 pause 생성 + ( ? ) 호출
+  기존 netns에 합류하는 시스템콜 = ( ? ) (새로 만드는 것은 clone / ( ? ))
+  공유 검증: /proc/<pid>/ns/* 의 ( ? ) 번호가 같다 → 공유: net / ( ? ) / ( ? )   분리: ( ? ) / ( ? )
   손 조립: ip netns add → ip link add type ( ? ) → 한쪽을 netns에 넣기 → IP·( ? ) 설정
   앱 컨테이너가 죽으면 Pod IP는 ( ? )
 
@@ -414,27 +413,27 @@ docker exec k8s-guide-control-plane grep -E 'service-cluster-ip-range|cluster-ci
 
    </details>
 
-4. pause 컨테이너가 없다면(앱 컨테이너 A가 네임스페이스를 소유한다면) 무슨 일이 생기는가?
+4. pause 프로그램의 두 가지 일(코드 수준)과, 샌드박스를 만드는 CRI 호출은?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   A가 크래시하면 네임스페이스가 사라지고, 합류해 있던 B의 네트워크도 끊기며 Pod IP가 바뀐다. 별도의 빈 프로세스(pause)가 네임스페이스를 소유하면 A와 B가 죽었다 살아나도 네임스페이스와 Pod IP가 유지된다. → 코어 2 (2.1)
+   ① `pause()`로 잠든 채 살아 있어 네임스페이스 유지, ② PID 1로서 `SIGCHLD`를 받아 `waitpid`로 좀비 수거. kubelet이 CRI `RunPodSandbox`를 요청하면 런타임이 그 안에서 pause 컨테이너를 만들고 CNI를 호출한다. 앱 컨테이너는 `CreateContainer`/`StartContainer` 등 별도 RPC다. → 코어 2 (2.1)
 
    </details>
 
-5. 같은 Pod의 두 컨테이너가 공유하는 네임스페이스와 분리하는 네임스페이스는? 노드에서 어떻게 확인하나?
+5. 컨테이너가 pause의 네임스페이스에 "합류"하는 시스템콜은? net 공유·mnt/pid 분리는 노드에서 어떻게 확인하나?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   `net`, `ipc`, `uts`는 공유(inode 번호가 같다), `mnt`, `pid`는 분리(다르다). `crictl inspectp`/`crictl inspect`로 샌드박스와 앱 컨테이너의 PID를 얻어 `ls -l /proc/$PID/ns/`로 비교한다. → 코어 2 (2.2)
+   `setns(fd, type)`(`clone`/`unshare`는 새로 만든다). `/proc/<pid>/ns/*`의 inode 번호가 같으면 같은 네임스페이스이므로, `crictl inspectp`/`inspect`로 얻은 PID로 `ls -l /proc/$PID/ns/`를 비교하면 `net`·`ipc`·`uts`는 같고 `mnt`·`pid`는 다르다. → 코어 2 (2.2)
 
    </details>
 
-6. 손으로 Pod를 조립하는 `ip netns` 실습에서 "CNI가 하는 일"에 해당하는 단계는 무엇이고, 컨테이너를 죽여도 IP가 유지되는 이유는?
+6. `ip netns` 손 조립에서 "CNI가 하는 일"에 해당하는 단계, 공유·분리의 검증법, 컨테이너를 죽여도 IP가 유지되는 이유는?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   빈 네임스페이스(pause 역할)를 만든 뒤, veth 페어를 만들어 한쪽을 네임스페이스에 넣고 `eth0` 이름·IP·기본 게이트웨이를 설정하는 단계가 CNI의 일이다. 네임스페이스 파일(pause 역할)이 살아 있어 컨테이너 프로세스가 죽어도 IP가 남는다. → 코어 2 (2.3)
+   빈 네임스페이스(pause 역할)를 만든 뒤, veth 페어를 만들어 한쪽을 네임스페이스에 넣고 `eth0` 이름·IP·기본 게이트웨이를 설정하는 단계가 CNI의 일이다. `ip netns pids pod-lab`의 각 PID에서 `readlink /proc/$p/ns/net`(같음)·`pid`·`mnt`(다름)를 비교한다. 네임스페이스 파일(pause 역할)이 살아 있어 IP가 남는다. → 코어 2 (2.2, 2.3)
 
    </details>
 
@@ -446,11 +445,11 @@ docker exec k8s-guide-control-plane grep -E 'service-cluster-ip-range|cluster-ci
 
    </details>
 
-8. Service CIDR(예: `10.96.0.0/12`)의 IP로 ping을 보내면 응답이 없는 이유는?
+8. 실제 클러스터에서 노드별 Pod CIDR과 클러스터의 Pod·Service 대역 설정은 어디서 읽나? Pod CIDR을 노드마다 쪼개는 층은 어느 장이 다루나?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   ClusterIP는 어떤 네트워크 인터페이스에도 붙어 있지 않은 가상 IP라 그 IP를 가진 장비가 없다. 각 노드의 iptables(또는 IPVS) 규칙이 그 IP로 향하는 패킷을 실제 Pod IP로 바꿔치기한다. → 코어 3 (3.1)
+   `kubectl get nodes -o jsonpath`로 `.spec.podCIDR`을 읽고, kube-apiserver·kube-controller-manager 매니페스트를 `grep -E 'service-cluster-ip-range|cluster-cidr'`한다. 클러스터 CIDR을 노드별로 쪼개 기록하는 층과 노드 수 상한 계산은 14장 코어 3이다. → 코어 3 (3.1)
 
    </details>
 
@@ -466,7 +465,7 @@ docker exec k8s-guide-control-plane grep -E 'service-cluster-ip-range|cluster-ci
 
 - **C++ 유추:** Pod ≈ 서버 한 대(자기 IP, 자기 포트 공간). 한 Pod의 컨테이너들 ≈ 같은 머신 위의 여러 프로세스(`127.0.0.1`로 통신). ⚠️ 깨지는 곳: 컨테이너들은 파일시스템·PID 공간이 분리돼 있고(mnt·pid), IP는 일회용이며 Pod가 교체되면 바뀐다. 그리고 "머신의 NIC 설정"을 하는 주체는 OS가 아니라 CNI 플러그인이다.
 - **비유:** pause = 아파트 세대의 "전화 회선 계약자". 세대원(앱 컨테이너)이 나갔다 들어와도 회선(IP)은 그대로다. ⚠️ 비유가 깨지는 지점: 세대원이 전부 이사 가는 것(Pod 교체)은 회선도 함께 새로 받는 것이고, 회선을 놓아 주는 일은 pause의 의지가 아니라 샌드박스 삭제 때 CNI가 `DEL`로 정리한다.
-- **묶음(3의 법칙):** 규칙 3개(Pod↔Pod, 노드↔Pod, 자기 IP = 남이 보는 IP) + 예외 1개 / 대역 3개(노드·Pod·Service) / 공유 3개(net·ipc·uts) vs 분리 2개(mnt·pid).
+- **묶음(3의 법칙):** 규칙 3개(Pod↔Pod, 노드↔Pod, 자기 IP = 남이 보는 IP) + 예외 1개 / 대역 3개(노드·Pod·Service) / 공유 3개(net·ipc·uts) vs 분리 2개(mnt·pid) / 네임스페이스 시스템콜 3개(`clone`·`unshare`·`setns`) / pause의 일 2개(유지·좀비 수거).
 - **대칭·순서:** 3부 지도 — Pod 네트워크(13&#126;15) → Service 전달(16&#126;17) → 이름(18) → 진입(19). 대비 쌍: 포트 매핑(포트=전역 자원) ↔ IP-per-Pod(포트 충돌 없음).
 
 ### 4. 가르치기 · 반대편 서기
@@ -485,4 +484,4 @@ docker exec k8s-guide-control-plane grep -E 'service-cluster-ip-range|cluster-ci
 
 ---
 
-*원문 근거: Kubernetes_Internals_Network_Guide/03-네트워크/13-네트워킹-모델과-CNI-스펙.md (13.1 쿠버네티스 네트워크 모델의 4대 요구사항); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/09-서비스와-클러스터-네트워킹-기초.md (9.1 쿠버네티스 네트워크 모델, IP 대역 세 가지); kubernetes-textbook-main/05-내부-동작-파헤치기/19-Pod를-밑바닥부터-만들어-보기.md (19.2 pause 컨테이너의 역할, 19.3 Pod를 손으로 만들기); Kubernetes_Internals_Network_Guide/01-내부-아키텍처/06-kubelet-런타임-kube-proxy-개요.md (6.2 CRI 아키텍처, RunPodSandbox); kubernetes-qustion-book/02_심화/06_네트워크와_서비스_노출.md (네 가지 문제, 통신 장애 계층 분리)*
+*원문 근거: Kubernetes_Internals_Network_Guide/03-네트워크/13-네트워킹-모델과-CNI-스펙.md (13.1 쿠버네티스 네트워크 모델의 4대 요구사항); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/09-서비스와-클러스터-네트워킹-기초.md (9.1 쿠버네티스 네트워크 모델, IP 대역 세 가지); kubernetes-textbook-main/05-내부-동작-파헤치기/19-Pod를-밑바닥부터-만들어-보기.md (19.1 세 개의 시스템콜·네임스페이스 inode, 19.2 pause 컨테이너의 역할, 19.3 Pod를 손으로 만들기 단계 6, 19.7 계층별 대응표의 runc config.json); Kubernetes_Internals_Network_Guide/01-내부-아키텍처/06-kubelet-런타임-kube-proxy-개요.md (6.2 CRI 아키텍처, RuntimeService의 샌드박스·컨테이너 RPC); kubernetes-qustion-book/02_심화/06_네트워크와_서비스_노출.md (네 가지 문제, 통신 장애 계층 분리)*

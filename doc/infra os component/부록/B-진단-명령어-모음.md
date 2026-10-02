@@ -140,6 +140,10 @@ conntrack -L                # NAT 연결 추적 테이블 (도커/쿠버네티�
 conntrack -C; conntrack -S  # 항목 수 / 통계 (DNS 간헐 실패, 포트 고갈 의심 시)
 ```
 
+> 🔬 **심화:** [네트워크 심화서 부록 B. 진단 명령어 모음 — 4. netfilter·iptables·nftables·conntrack](../../Infra%20network%20component/부록/B-진단-명령어-모음.md)
+
+> 📎 **관련 참고:** 같은 부록의 1(소켓·TCP·포트), 3(인터페이스·veth·브리지·라우팅·ARP), 12(패킷 캡처 위치별)절도 [참고](../../Infra%20network%20component/부록/B-진단-명령어-모음.md)하세요.
+
 ## 코어 2. 컨테이너·Docker 계층 명령
 
 ### B.5 컨테이너 프로세스에 들어가기
@@ -291,6 +295,10 @@ kubectl debug -it <pod> --image=nicolaka/netshoot --target=<container> -- tcpdum
 
 DNS 실패는 CoreDNS Pod → `kube-dns` EndpointSlice → Pod의 `resolv.conf` → ClusterIP 직접 질의(`dig @10.96.0.10 ...`) → 간헐성(conntrack) 순으로 좁힌다([28장](../3부-쿠버네티스-구성-요소/28-CoreDNS-Ingress-NetworkPolicy.md)). Service ClusterIP로는 안 되는데 CoreDNS Pod IP로 직접 질의하면 되면 kube-proxy 문제다.
 
+> 🔬 **심화:** [네트워크 심화서 부록 B. 진단 명령어 모음 — 9. DNS](../../Infra%20network%20component/부록/B-진단-명령어-모음.md)
+
+> 📎 **관련 참고:** 같은 부록의 8(Service·EndpointSlice·kube-proxy), 10(Ingress), 11(NetworkPolicy·Cilium·Hubble)절도 [참고](../../Infra%20network%20component/부록/B-진단-명령어-모음.md)하세요.
+
 ### B.10 스토리지, 설정, 권한
 
 **한 줄 요약:** PVC 상태와 Events, 그리고 "내가 이것을 할 수 있는가"를 `can-i`로 확인한다.
@@ -342,6 +350,8 @@ kubectl rollout restart deployment/<name>    # 설정 변경 후 롤아웃 유�
 | PVC `Pending` / Pod `ContainerCreating` | 스토리지 | `kubectl describe pvc` | StorageClass, `WaitForFirstConsumer`, VolumeAttachment |
 | API `403 Forbidden` | 인가 | `kubectl auth can-i --list` | Role/RoleBinding |
 | API `401` / timeout | 인증 / 경로 | kubeconfig 인증서·토큰 / DNS·route·방화벽 | 만료(`kubeadm certs check-expiration`) |
+
+> 📎 **관련 참고:** 심화서 부록 B 14절은 증상 → 어느 절을 볼지 가리키는 짧은 [색인](../../Infra%20network%20component/부록/B-진단-명령어-모음.md)입니다.
 
 ## 실무 적용
 

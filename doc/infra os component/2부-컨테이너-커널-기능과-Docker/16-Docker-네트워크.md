@@ -14,6 +14,8 @@ nav_order: 16
 > - 게임 서버 포트를 `-p 7000:7000`으로 열었는데 외부에서 안 붙거나, 방화벽(ufw)으로 막았는데도 외부에서 붙는다.
 > - 지연이 민감한 서버를 `--network host`로 띄우자는 제안이 나오고, 그 대가를 설명해야 한다.
 
+> 🔬 Docker 네트워크를 더 깊게 보려면 [네트워크 심화서 2부](../../Infra%20network%20component/2부-Docker-네트워크/index.md)를 보세요.
+
 ## 코어 — 이것만은 100%
 
 > **한 문장:** Docker 네트워크는 Sandbox(네트워크 네임스페이스)·Endpoint(veth 한쪽 끝)·Network(브리지 등) 세 객체로 추상화되고, 컨테이너 간 통신은 브리지의 L2 스위칭, 외부 통신은 라우팅+NAT, 포트 게시는 iptables DNAT, 이름 해석은 127.0.0.11 내장 DNS가 맡는다.
@@ -59,25 +61,19 @@ nav_order: 16
 
 **한 줄 요약:** 네트워킹 로직을 dockerd 코어에서 라이브러리(libnetwork)로 분리하고, 그 모델이 CNM이다.
 
-초기 Docker는 브리지 생성, veth 연결, iptables 규칙 삽입이 dockerd 안에 박혀 있어서 새 드라이버를 추가하려면 dockerd 자체를 고쳐야 했다. 여러 호스트에 걸친 통신(오버레이)이 필요해지고 SDN 벤더들이 통합을 원하면서 이 구조는 한계에 부딪혔고, 네트워킹이 `libnetwork`이라는 독립 Go 라이브러리로 분리됐다. libnetwork은 정책과 모델(CNM)을 정의하고 실제 패킷 처리는 플러그형 드라이버에 맡긴다. 단, **별도 프로세스나 데몬이 아니라 dockerd에 링크되어 동작하는 라이브러리**다(`docker network create` 요청을 받는 주체는 여전히 dockerd 프로세스다).
+초기 Docker는 브리지 생성, veth 연결, iptables 규칙 삽입이 dockerd 안에 박혀 있어 새 드라이버를 추가하려면 dockerd 자체를 고쳐야 했다. 그래서 네트워킹이 `libnetwork`이라는 독립 Go 라이브러리로 분리됐고, 정책과 모델(CNM)은 libnetwork이, 실제 패킷 처리는 플러그형 드라이버가 맡는다. 별도 프로세스가 아니라 **dockerd에 링크된 라이브러리**다.
+
+> 🔬 **심화:** [네트워크 심화서 7장. Docker 네트워크 모델 — 1.1 왜 분리되었는가 · 1.2 프로세스가 아니라 라이브러리다](../../Infra%20network%20component/2부-Docker-네트워크/07-Docker-네트워크-모델.md)
 
 ### 1.2 Sandbox, Endpoint, Network
 
 **한 줄 요약:** Sandbox는 컨테이너의 스택, Endpoint는 연결 지점, Network는 연결 가능한 Endpoint의 묶음이다.
 
-- **Sandbox:** 컨테이너 하나의 네트워크 스택 전체(인터페이스, 라우팅 테이블, `/etc/resolv.conf`). 리눅스에서는 대부분 [네임스페이스](09-네임스페이스.md)의 네트워크 네임스페이스로 구현된다. 하나의 Sandbox가 여러 Network에 동시에 붙을 수 있다(`eth0`, `eth1`).
-- **Endpoint:** Sandbox를 특정 Network에 연결하는 가상 인터페이스. 브리지 드라이버에서는 veth pair의 컨테이너 쪽 끝이다. 정확히 하나의 Network, 하나의 Sandbox에만 속한다. 네트워크 두 개에 붙으면 Endpoint도 둘이다.
-- **Network:** 서로 통신해야 하는 Endpoint의 논리적 그룹. 구현은 드라이버 몫이다. 브리지라면 리눅스 브리지 디바이스(`docker0` 또는 사용자 정의 브리지) 하나, 오버레이라면 VXLAN VNI 하나다.
+- **Sandbox:** 컨테이너 하나의 네트워크 스택 전체(인터페이스, 라우팅 테이블, `/etc/resolv.conf`). 리눅스에서는 대부분 [네임스페이스](09-네임스페이스.md)의 네트워크 네임스페이스이며, 한 Sandbox가 여러 Network에 붙을 수 있다(`eth0`, `eth1`).
+- **Endpoint:** Sandbox를 특정 Network에 잇는 가상 인터페이스. 브리지 드라이버에서는 veth pair의 컨테이너 쪽 끝이며, 정확히 하나의 Network·하나의 Sandbox에만 속한다.
+- **Network:** 서로 통신해야 하는 Endpoint의 논리적 그룹. 브리지라면 리눅스 브리지 디바이스 하나, 오버레이라면 VXLAN VNI 하나다.
 
-```
-[ 컨테이너 A ]                              [ 컨테이너 B ]
-   Sandbox A (network namespace)               Sandbox B (network namespace)
-   Endpoint A1 ── veth pair ──┐             ┌── veth pair ── Endpoint B1
-                       ┌──────┴─────────────┴──────┐
-                       │      Network "app-net"     │
-                       │   (리눅스 브리지 또는 VXLAN) │
-                       └────────────────────────────┘
-```
+> 🔬 **심화:** [네트워크 심화서 7장. Docker 네트워크 모델 — 2.1 세 객체의 정의](../../Infra%20network%20component/2부-Docker-네트워크/07-Docker-네트워크-모델.md)
 
 ### 1.3 드라이버, IPAM, 명령 대응
 
@@ -113,11 +109,15 @@ docker network create \
 | `docker network rm` | Network 삭제(연결된 Endpoint가 없을 때만) |
 | `docker run --network <net>` | Sandbox 생성 + Endpoint 생성/연결을 한 번에 |
 
+> 📎 **관련 참고:** [네트워크 심화서 7장. Docker 네트워크 모델 — 3.3 IPAM, 4.1 명령과 CNM의 대응](../../Infra%20network%20component/2부-Docker-네트워크/07-Docker-네트워크-모델.md)
+
 ### 1.4 CNM과 CNI는 다르다
 
 **한 줄 요약:** CNM은 Docker의 풍부한 객체 모델이고 CNI는 쿠버네티스가 택한 ADD/DEL 훅이다.
 
-CNM은 Network·Endpoint·Sandbox와 생명주기 전체를 libnetwork 안에서 일관되게 관리한다. CNI는 "이미 만들어진 컨테이너의 네트워크 네임스페이스 경로를 받아, 그 안에 인터페이스를 붙이고(ADD) 떼는(DEL)" 훨씬 좁은 계약이고, 플러그인은 JSON으로 통신하는 단일 실행 파일이다. 쿠버네티스는 파드 안 컨테이너들이 네임스페이스를 공유하는 모델을 이미 갖고 있었고 특정 런타임 라이브러리에 종속되지 않는 단순한 계약을 원해서 CNI를 택했다. Docker Engine 단독 사용은 CNM(`docker network` 체계), 쿠버네티스 노드 네트워킹은 CNI 플러그인 체계를 이해해야 한다([26장](../3부-쿠버네티스-구성-요소/26-쿠버네티스-네트워크-모델과-CNI.md)).
+CNM은 Network·Endpoint·Sandbox와 생명주기 전체를 libnetwork 안에서 관리하는 풍부한 모델이고, CNI는 "이미 만들어진 컨테이너의 네트워크 네임스페이스 경로를 받아 인터페이스를 붙이고(ADD) 떼는(DEL)" 좁은 계약이며 플러그인은 JSON으로 통신하는 단일 실행 파일이다. Docker Engine 단독 사용은 CNM(`docker network`), 쿠버네티스 노드 네트워킹은 CNI 플러그인 체계를 이해해야 한다([26장](../3부-쿠버네티스-구성-요소/26-쿠버네티스-네트워크-모델과-CNI.md)).
+
+> 🔬 **심화:** [네트워크 심화서 7장. Docker 네트워크 모델 — 4.2 CNM과 CNI](../../Infra%20network%20component/2부-Docker-네트워크/07-Docker-네트워크-모델.md)
 
 ## 코어 2. 브리지 = 리눅스 브리지 + veth pair
 
@@ -126,6 +126,8 @@ CNM은 Network·Endpoint·Sandbox와 생명주기 전체를 libnetwork 안에서
 **한 줄 요약:** 둘 다 리눅스 브리지지만, 기본 브리지(`docker0`)에는 컨테이너 이름 해석이 없다.
 
 `--network`를 지정하지 않으면 컨테이너는 기본 `bridge` 네트워크(`docker0`)에 붙는다. 여기서는 컨테이너끼리 이름으로 통신할 수 없고 `--link` 같은 레거시나 IP를 직접 써야 했다. `docker network create -d bridge my-net`으로 만든 **사용자 정의 브리지**는 컨테이너 이름(또는 `--network-alias` 별칭)이 내장 DNS로 해석된다(코어 4). 또 기본 브리지의 컨테이너들은 하나의 평평한 공간에 놓이지만, 서로 다른 사용자 정의 브리지의 컨테이너는 `docker network connect` 없이는 기본적으로 격리된다. 그래서 실무는 프로젝트마다 사용자 정의 브리지를 만든다. Docker Compose가 프로젝트별 전용 네트워크를 자동 생성하는 이유도 같다.
+
+> 📎 **관련 참고:** [네트워크 심화서 8장. 브리지 네트워크와 포트 게시 — 1.1 기본 브리지와 사용자 정의 브리지](../../Infra%20network%20component/2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md)
 
 ### 2.2 veth pair: 컨테이너와 호스트를 잇는 가상 케이블
 
@@ -148,6 +150,8 @@ bridge link show
 
 `eth0@if7`의 `@if` 뒤 숫자는 반대쪽 끝이 **호스트 네임스페이스에서 갖는 인터페이스 인덱스**다. 호스트의 `ip link`에서 같은 인덱스를 찾으면 짝이 되는 veth다. 예전에 쓰던 `brctl show docker0`은 `bridge-utils` 패키지 도구라 최근 배포판에는 기본으로 없는 경우가 많고, 요즘은 iproute2의 `bridge link show`나 `bridge fdb show br docker0`를 쓴다.
 
+> 📎 **관련 참고:** [네트워크 심화서 8장. 브리지 네트워크와 포트 게시 — 2.1 veth pair — 컨테이너와 호스트를 잇는 가상 케이블](../../Infra%20network%20component/2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md)
+
 ### 2.3 통신 경로: 컨테이너 간 vs 외부
 
 **한 줄 요약:** 같은 브리지 안은 L2 스위칭(NAT 없음), 밖으로 나가는 통신은 라우팅+MASQUERADE다.
@@ -160,6 +164,8 @@ iptables -t nat -L POSTROUTING -n -v | grep -i MASQUERADE
 ```
 
 이 경로 구분은 소켓 지식과 이어진다. 게임 서버가 외부 인증 서버에 접속할 때 상대가 보는 출발지 IP는 컨테이너 IP가 아니라 호스트 IP다([네트워크 스택](../1부-리눅스-OS-구성-요소/06-네트워크-스택.md)).
+
+> 📎 **관련 참고:** [네트워크 심화서 8장. 브리지 네트워크와 포트 게시 — 2.2 통신 경로: 컨테이너 간 vs 외부](../../Infra%20network%20component/2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md)
 
 ## 코어 3. 포트 게시 = DNAT(+docker-proxy), 그리고 방화벽
 
@@ -193,33 +199,35 @@ iptables-save -t nat | grep -i docker
 # -p tcp --dport 8080 -j DNAT --to-destination 172.17.0.2:80 형태의 규칙
 ```
 
+> 📎 **관련 참고:** [네트워크 심화서 8장. 브리지 네트워크와 포트 게시 — 3.1 포트 게시(-p)의 두 메커니즘, 3.2 인바운드 패킷 경로](../../Infra%20network%20component/2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md)
+
 ### 3.2 docker-proxy는 안전판
 
 **한 줄 요약:** 포트마다 호스트 포트를 bind하고 연결을 중계하는 사용자 공간 프로세스로, DNAT만으로 깔끔하지 않은 경우를 보완한다.
 
-포트를 게시할 때 dockerd는 호스트 게시 포트를 직접 bind해 컨테이너 IP:포트로 중계하는 `docker-proxy` 프로세스를 띄운다. 호스트 자신이 루프백(`127.0.0.1`)으로 자기가 게시한 포트에 접속하거나, 컨테이너가 호스트의 공인 IP 같은 게시 주소로 되돌아 들어오는 hairpin NAT, IPv6 처리가 얽히는 경우처럼 DNAT 규칙만으로 왕복 경로가 완성되지 않는 케이스를 사용자 공간에서 일관되게 처리하는 역할이다. 오늘날에는 커널의 브리지 netfilter 훅과 conntrack이 개선되어 대부분의 최신 배포판에서 hairpin도 커널 DNAT만으로 처리되지만, 오래된 커널이나 브리지 netfilter가 꺼진 환경에서는 경계 사례가 어긋날 수 있다. 실무에서는 컨테이너가 자기 자신의 게시 주소를 호출하는 설계 자체를 피하고 컨테이너 이름이나 `localhost`로 접근하는 것이 가장 확실하다.
+dockerd는 포트를 게시할 때 호스트 포트를 직접 bind해 컨테이너로 중계하는 `docker-proxy` 프로세스도 띄운다. 호스트 루프백 접속, hairpin NAT, IPv6처럼 DNAT만으로 왕복 경로가 완성되지 않는 경우를 사용자 공간에서 처리하는 안전판이다. 최신 배포판에서는 대부분 커널 DNAT만으로 처리되지만 오래된 커널이나 브리지 netfilter가 꺼진 환경에서는 경계 사례가 어긋날 수 있으므로, 컨테이너가 자기 자신의 게시 주소를 호출하는 설계는 피하고 컨테이너 이름이나 `localhost`로 접근한다.
 
 ```json
 { "userland-proxy": false }
 ```
 
-`daemon.json`에서 `userland-proxy`를 `false`로 하면 `docker-proxy`가 뜨지 않고 커널 NAT 경로만 남는다. 호스트당 게시 포트가 많은 환경에서 프로세스 수를 줄이는 이득이 있지만, 끄기 전에 호스트 자신의 루프백 접근이 필요한지 점검한다. 현재 프록시는 `ps -ef | grep docker-proxy`로 보며 `-host-port 8080 -container-ip 172.17.0.2 -container-port 80` 같은 인자가 나온다. 이 구조는 소켓 지식으로 보면 "L4 릴레이 서버(사용자 공간)"와 "커널이 주소를 고쳐 쓰는 NAT"의 병존이다.
+`daemon.json`에서 `false`로 하면 `docker-proxy`가 뜨지 않고 커널 NAT 경로만 남는다. 끄기 전에 호스트 루프백 접근이 필요한지 점검하고, 현재 프록시는 `ps -ef | grep docker-proxy`로 확인한다.
+
+> 🔬 **심화:** [네트워크 심화서 8장. 브리지 네트워크와 포트 게시 — 3.1 포트 게시(-p)의 두 메커니즘, 3.3 hairpin NAT](../../Infra%20network%20component/2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md)
 
 ### 3.3 Engine 28: 게시하지 않은 포트를 기본 차단
 
 **한 줄 요약:** `-p`로 열지 않은 컨테이너 포트로의 직접 라우팅 접근이 기본 차단되도록 바뀌었다.
 
-문제의 배경은 두 가지였다. 첫째, 많은 배포판의 기본 iptables 정책이 `ACCEPT`이고 Docker가 컨테이너 네트워크로 가는 트래픽을 따로 필터링하지 않아서, 네트워크 경로만 있으면(같은 사설망, 클라우드 VPC 라우팅) 게시하지 않은 포트에 **컨테이너 IP로 직접** 접근할 수 있었다. 둘째, Docker는 `FORWARD` 체인에 자기 `DOCKER` 체인으로 점프하는 규칙을 앞쪽에 삽입하는데, `ufw`/`firewalld`의 규칙은 흔히 `INPUT`이나 자기 관리 체인에 들어간다. 컨테이너로 가는 트래픽은 대부분 `INPUT`이 아니라 `FORWARD`를 지나므로, 관리자가 `ufw`로 막아도 Docker 규칙이 먼저 처리해 의도가 우회됐다. 이것은 버그라기보다 컨테이너 규칙과 호스트 정책 규칙이 같은 netfilter 체인 공간을 조율 없이 나눠 쓰던 구조 문제였다.
+많은 배포판의 기본 iptables 정책이 `ACCEPT`이고 Docker가 컨테이너로 가는 트래픽을 따로 필터링하지 않아, 네트워크 경로만 있으면 게시하지 않은 포트에 **컨테이너 IP로 직접** 접근할 수 있었다. 또 Docker가 `FORWARD` 체인 앞쪽에 자기 `DOCKER` 체인 점프를 삽입하는데 컨테이너 트래픽은 `INPUT`이 아니라 `FORWARD`를 지나므로, `ufw`/`firewalld`로 막아도 Docker 규칙이 먼저 처리돼 우회됐다(같은 netfilter 체인 공간을 조율 없이 공유하는 구조 문제). Engine 28.0.0은 게시하지 않은 포트의 인바운드를 `DOCKER` 체인에서 기본 차단한다(Linux iptables 한정, Docker Desktop 제외). 이전 동작은 `gateway_mode_ipv4`/`gateway_mode_ipv6`를 `nat-unprotected`로 설정해 복원할 수 있지만 포트를 정식 게시하는 쪽이 권장된다. 다만 **게시된 포트에는 여전히 Docker 규칙이 우선**한다.
 
-Docker Engine 28.0.0은 게시하지 않은 포트의 인바운드 트래픽을 컨테이너 IP 기준으로 `DOCKER` 체인 레벨에서 기본 차단한다(Linux iptables 기반만 해당, VM 계층을 쓰는 Docker Desktop은 영향 없음). 이전 동작이 필요하면 `gateway_mode_ipv4`/`gateway_mode_ipv6`를 `nat-unprotected`로 설정해 복원할 수 있지만 이름 그대로 보호되지 않는 상태이므로 포트를 정식 게시하는 쪽이 권장된다. 다만 이것이 충돌 전체를 해소한 것은 아니다. **게시된 포트에는 여전히 Docker 규칙이 우선**한다.
+> 🔬 **심화:** [네트워크 심화서 11장. Docker 방화벽: iptables에서 nftables로 — 2. Engine 28.0.0 — 게시하지 않은 포트를 막다](../../Infra%20network%20component/2부-Docker-네트워크/11-Docker-방화벽-iptables에서-nftables로.md)
 
 ### 3.4 Engine 29: 실험적 nftables 백엔드
 
 **한 줄 요약:** Docker 전용 테이블로 규칙을 격리해 다른 방화벽 도구와의 충돌을 줄이는 방향이지만 아직 실험적이다.
 
-iptables의 한계는 규칙 순회가 선형이고 IPv4/IPv6/브리지/ARP 도구(`iptables`, `ip6tables`, `ebtables`, `arptables`)가 파편화되어 있다는 점이다. 현대 배포판의 `iptables` 명령은 이미 `iptables-nft`라는 호환 레이어로 nftables 커널 서브시스템에 규칙을 적재한다(과거 구현은 `iptables-legacy`로 남고 `update-alternatives`로 전환). legacy와 nft가 섞이면 서로의 규칙을 인식하지 못해 진단이 어려워진다. nftables는 단일 프레임워크(`inet` 패밀리로 IPv4/IPv6 동시), 커널 내 바이트코드 가상 머신, 세트/맵 기반 매칭(해시/트리라 규칙이 늘어도 선형으로 늘지 않음)으로 설계됐다.
-
-Docker 29.0.0은 이를 호환 레이어 없이 netlink으로 직접 쓰는 실험적 백엔드를 도입했다.
+iptables는 규칙 순회가 선형이고 IPv4/IPv6/브리지/ARP 도구가 파편화돼 있다. 현대 배포판의 `iptables`는 대개 nftables 호환 레이어(`iptables-nft`)이며 `iptables-legacy`와 섞이면 서로의 규칙을 보지 못해 진단이 어렵다. nftables는 단일 프레임워크(`inet`), 커널 내 바이트코드 VM, 세트/맵 매칭으로 설계됐다. Docker 29.0.0은 호환 레이어 없이 netlink으로 직접 쓰는 실험적 백엔드를 도입했다.
 
 ```bash
 dockerd --firewall-backend=nftables
@@ -229,12 +237,11 @@ dockerd --firewall-backend=nftables
 { "firewall-backend": "nftables" }
 ```
 
-`daemon.json`에 넣고 데몬을 재시작한다. 달라지는 점은 다음과 같다.
+- 호스트에 `ip docker-bridges`, `ip6 docker-bridges`라는 **Docker 전용 테이블**을 만든다(`nft list table ip docker-bridges`). DNS 관련 규칙은 컨테이너 네임스페이스 안에도 생성된다.
+- iptables 방식의 `DOCKER-USER` 체인은 그대로 존재하지 않아, 별도 nftables 테이블과 우선순위를 직접 조정해야 한다.
+- 공식 문서가 경고하는 **실험적** 기능이라 프로덕션 전면 도입은 신중해야 한다. Swarm 모드에서는 오버레이 규칙이 아직 이관되지 않아 활성화가 거부되고, macvlan/ipvlan은 NAT·포트 게시 경로를 거치지 않으므로 무관하다.
 
-- 호스트 네임스페이스에 `ip docker-bridges`, `ip6 docker-bridges`라는 **Docker 전용 테이블**을 만들어 거기에 체인과 우선순위를 스스로 구성한다(DNS 관련 규칙은 컨테이너 네임스페이스 안에도 생성). `nft list table ip docker-bridges`로 분리해서 볼 수 있다.
-- iptables 방식의 `DOCKER-USER` 체인(관리자 규칙을 Docker보다 먼저 평가시키는 훅)은 그대로 존재하지 않는다. 별도 nftables 테이블을 만들고 우선순위를 `docker-bridges`와의 관계 속에서 직접 조정해야 한다.
-- 공식 문서는 구성 옵션·동작·구현이 바뀔 수 있는 **실험적** 기능이라고 경고한다. 프로덕션 전면 도입은 신중해야 한다.
-- Swarm 모드에서는 오버레이 규칙이 아직 이관되지 않아 활성화가 거부된다. macvlan/ipvlan은 애초에 NAT·포트 게시 경로를 거치지 않으므로 이 전환과 무관하다. 영향은 브리지 네트워크의 포트 게시 경로에 국한된다.
+> 🔬 **심화:** [네트워크 심화서 11장. Docker 방화벽: iptables에서 nftables로 — 1.1 iptables는 왜 한계에 부딪혔나 · 3. Engine 29.0.0 — 실험적 네이티브 nftables 백엔드 · 4.1 세 가지 제약](../../Infra%20network%20component/2부-Docker-네트워크/11-Docker-방화벽-iptables에서-nftables로.md)
 
 > **[보충]** `ufw`/`firewalld`로 막은 포트가 Docker 게시 포트로 새는 현상에 대한 구체적 운영 처방(규칙 배치 위치 등)은 원천에 없다. iptables 백엔드에서는 `DOCKER-USER` 체인이 이를 위한 관리자 훅이라는 것까지만 원문에 근거한다.
 
@@ -251,7 +258,9 @@ docker run --rm --network mynet alpine:latest cat /etc/resolv.conf
 # options ndots:0
 ```
 
-`127.0.0.11`은 컨테이너 자신의 로컬 프로세스가 아니라 dockerd가 컨테이너의 네트워크 네임스페이스 안에 심어 둔 가상 DNS 리스너다. 네임스페이스 안에 `127.0.0.11:53`(UDP/TCP) 쿼리를 가로채는 DNAT 규칙을 두고, 실제 처리는 dockerd(libnetwork) 안의 내장 리졸버가 한다. 리졸버는 그 네트워크에 속한 컨테이너의 이름-IP 매핑(드라이버가 연결/해제 때마다 갱신하는 서비스 디스커버리 정보)을 조회한다. 컨테이너 이름뿐 아니라 `--network-alias` 별칭, Compose 서비스 이름과 자동 별칭도 같은 방식이다. 내부 테이블에 없는 이름(`api.example.com` 같은)은 실패시키지 않고 호스트 `/etc/resolv.conf`의 네임서버(또는 `--dns`로 지정한 서버)로 그대로 포워딩한다. 사용자 정의 네트워크에서는 업스트림 서버에 순서대로 질의해 성공 응답이나 NXDOMAIN이 오면 즉시 중단한다.
+`127.0.0.11`은 컨테이너 안의 프로세스가 아니라 dockerd가 컨테이너 네임스페이스 안에 심어 둔 가상 DNS 리스너다. `127.0.0.11:53`(UDP/TCP) 쿼리를 가로채는 DNAT 규칙이 있고, 실제 처리는 dockerd(libnetwork)의 내장 리졸버가 한다. 리졸버는 그 네트워크에 속한 컨테이너의 이름-IP 매핑(이름, `--network-alias` 별칭, Compose 서비스 이름)을 조회하고, 못 찾은 이름(`api.example.com` 등)은 호스트 `/etc/resolv.conf`의 네임서버(또는 `--dns`로 지정한 서버)로 포워딩한다.
+
+> 🔬 **심화:** [네트워크 심화서 9장. Docker DNS와 서비스 디스커버리 — 1. 127.0.0.11은 컨테이너 안의 프로세스가 아니라 dockerd다](../../Infra%20network%20component/2부-Docker-네트워크/09-Docker-DNS와-서비스-디스커버리.md)
 
 ### 4.2 기본 브리지에 없는 이유, `--link`의 역사
 
@@ -259,23 +268,26 @@ docker run --rm --network mynet alpine:latest cat /etc/resolv.conf
 
 기본 브리지 컨테이너의 `/etc/resolv.conf`에는 `127.0.0.11`이 아닌 호스트 네임서버 설정이 복사되어 있다. `--link`는 대상 IP를 확인해 `/etc/hosts`에 정적으로 한 줄 넣었기 때문에 IP가 바뀌면 갱신할 방법이 없었고 동적으로 늘어나는 서비스 그룹을 표현할 수 없었다. 사용자 정의 네트워크는 내장 DNS 테이블이 연결/해제 시 함께 갱신되어 이 문제를 근본적으로 해결했다. `--link`는 레거시이므로 새 구성에서는 쓰지 않는다.
 
+> 📎 **관련 참고:** [네트워크 심화서 9장. Docker DNS와 서비스 디스커버리 — 2.1 기본 브리지에 DNS가 없는 역사적 이유](../../Infra%20network%20component/2부-Docker-네트워크/09-Docker-DNS와-서비스-디스커버리.md) · [네트워크 심화서 9장 — 2.2 범위는 "네트워크별 장부" — CNM 객체로 읽기](../../Infra%20network%20component/2부-Docker-네트워크/09-Docker-DNS와-서비스-디스커버리.md)
+
 ### 4.3 DNS 옵션과 진단 순서
 
 **한 줄 요약:** 옵션은 컨테이너 생성 시점에 `/etc/resolv.conf`·`/etc/hosts`에 정적으로 기록되고, 장애는 정형화된 원인 네 가지로 좁혀진다.
 
-- `--dns`: `nameserver` 추가(사용자 정의 네트워크에서는 내장 DNS가 외부 이름을 포워딩할 때 참조하는 업스트림에 영향)
-- `--dns-search`: `search` 도메인
-- `--dns-option`: `ndots`, `timeout`, `attempts` 등 `options`(사용자 정의 네트워크 기본은 `ndots:0`)
-- `--add-host host:ip`: `/etc/hosts`에 정적 매핑. DNS 질의를 거치지 않아 항상 즉시 해석된다. `host-gateway` 값은 호스트를 가리키는 내부 IP로 치환된다.
+옵션은 컨테이너 생성 시점에 `/etc/resolv.conf`·`/etc/hosts`에 정적으로 기록된다.
 
-실행 중 호스트의 DNS 설정이 바뀌어도 이미 떠 있는 컨테이너의 `resolv.conf`가 자동 갱신되지는 않는 것이 일반적이며(일부 예외 있음), 반영하려면 컨테이너를 재생성한다.
+- `--dns`: `nameserver` 추가 / `--dns-search`: `search` 도메인 / `--dns-option`: `ndots`, `timeout`, `attempts` 등(사용자 정의 네트워크 기본은 `ndots:0`)
+- `--add-host host:ip`: `/etc/hosts` 정적 매핑(DNS 질의 없음). `host-gateway` 값은 호스트를 가리키는 내부 IP로 치환된다.
+- 실행 중 호스트 DNS 설정이 바뀌어도 이미 떠 있는 컨테이너의 `resolv.conf`는 일반적으로 자동 갱신되지 않으므로, 반영하려면 컨테이너를 재생성한다.
 
-진단은 이 순서로 한다.
+진단 순서는 다음과 같다.
 
-1. 조회하는 쪽과 대상이 **같은 사용자 정의 네트워크**에 있는가? 해석 범위는 네트워크 단위다(서로 다른 네트워크는 둘 다 127.0.0.11을 갖고 있어도 서로 못 찾는다).
+1. 조회하는 쪽과 대상이 **같은 사용자 정의 네트워크**에 있는가? 해석 범위는 네트워크 단위다(둘 다 127.0.0.11을 가져도 다른 네트워크끼리는 못 찾는다).
 2. 컨테이너가 **기본 브리지**에 붙어 있지 않은가? `--network` 미지정이면 여기에 붙는다.
-3. `ndots`/검색 도메인이 의도치 않은 이름을 조회하게 하지 않는가? 쿠버네티스 설정을 가져와 `ndots:5`로 키우면 짧은 이름 하나에도 검색 도메인을 덧붙여 여러 번 질의한다.
-4. 애플리케이션 자체 DNS 캐싱이 TTL을 무시하지 않는가? 일부 런타임(특히 JVM 계열)은 기본 캐시가 길어 IP가 바뀐 뒤에도 옛 IP로 접속한다. Docker 내장 DNS 문제가 아니다.
+3. `ndots`/검색 도메인이 의도치 않은 이름을 조회하게 하지 않는가? `ndots:5`는 짧은 이름 하나에도 검색 도메인을 덧붙여 여러 번 질의한다.
+4. 애플리케이션 자체 DNS 캐싱(특히 JVM 계열)이 TTL을 무시하지 않는가? Docker 내장 DNS 문제가 아니다.
+
+> 🔬 **심화:** [네트워크 심화서 9장. Docker DNS와 서비스 디스커버리 — 2.3 DNS 문제 진단 4단계, 3. DNS 옵션](../../Infra%20network%20component/2부-Docker-네트워크/09-Docker-DNS와-서비스-디스커버리.md)
 
 DNS의 일반 동작(resolv.conf, 검색 도메인)은 [네트워크 스택](../1부-리눅스-OS-구성-요소/06-네트워크-스택.md)과, 쿠버네티스의 CoreDNS와 `ndots`는 [28장](../3부-쿠버네티스-구성-요소/28-CoreDNS-Ingress-NetworkPolicy.md)과 이어진다.
 
@@ -285,10 +297,10 @@ DNS의 일반 동작(resolv.conf, 검색 도메인)은 [네트워크 스택](../
 
 **한 줄 요약:** 컨테이너가 물리 네트워크에서 독립된 장비처럼 보이게 하지만, 호스트와 컨테이너가 직접 통신하지 못하는 커널 제약이 있다.
 
-NAT를 우회하려는 이유는 세 가지다. 자기 IP/MAC을 라이선스·클러스터 멤버십·멀티캐스트 디스커버리에 쓰는 레거시 소프트웨어, 서비스마다 고유 IP와 표준 포트를 전제로 설계된 네트워크 정책, 그리고 conntrack을 거치는 NAT 오버헤드가 문제가 되는 고성능 워크로드다.
+NAT를 우회하는 이유는 자기 IP/MAC을 쓰는 레거시 소프트웨어, 서비스마다 고유 IP와 표준 포트를 전제한 네트워크 정책, conntrack NAT 오버헤드가 문제되는 고성능 워크로드다.
 
-- **macvlan:** 부모 물리 인터페이스 위에 컨테이너마다 **고유 MAC**을 가진 서브인터페이스를 만든다. veth·브리지·호스트 IP 스택을 거치지 않고 MAC 기준으로 프레임이 분배된다. 모드는 `bridge`(기본, 같은 부모끼리 커널 내부 스위칭), `vepa`(같은 부모끼리도 외부 스위치로 보냈다 되돌림), `private`(상호 통신 차단), `passthru`(부모 NIC를 컨테이너 하나에 통째로)다. 부모는 `eth0.20`처럼 802.1Q VLAN 서브인터페이스도 가능하다. 단 NIC/스위치가 promiscuous mode와 포트당 다중 MAC 학습을 허용해야 하고, 퍼블릭 클라우드의 가상 NIC는 소스/목적지 MAC 검사로 트래픽을 조용히 드롭하는 경우가 많다.
-- **ipvlan:** 컨테이너들이 **부모의 MAC을 공유**하고 IP 기준으로 분배한다. MAC 개수 제한이 있는 스위치/클라우드에서 대안이다. L2 모드(기본, 같은 브로드캐스트 도메인)와 L3 모드(브로드캐스트·멀티캐스트 미전달, 커널이 IP로 라우팅하며 다른 서브넷끼리 외부 라우터 없이 통신 가능, 고정 IP 사용이 일반적)가 있다.
+- **macvlan:** 부모 물리 인터페이스 위에 컨테이너마다 **고유 MAC**의 서브인터페이스를 만든다(veth·브리지 없음). 모드는 `bridge`(기본)/`vepa`/`private`/`passthru`이고, 부모는 `eth0.20` 같은 802.1Q VLAN 서브인터페이스도 가능하다. NIC/스위치가 promiscuous mode와 포트당 다중 MAC을 허용해야 하며 퍼블릭 클라우드 가상 NIC는 MAC 검사로 트래픽을 드롭하는 경우가 많다.
+- **ipvlan:** 컨테이너들이 **부모의 MAC을 공유**하고 IP로 분배한다. MAC 개수 제한 환경의 대안이며 L2 모드(기본)와 L3 모드(브로드캐스트·멀티캐스트 미전달, 커널이 IP로 라우팅)가 있다.
 
 ```bash
 docker network create -d macvlan \
@@ -296,7 +308,7 @@ docker network create -d macvlan \
   -o parent=eth0 mv-net
 ```
 
-**공통 제약:** 컨테이너는 물리망의 다른 장비와는 통신하는데 정작 실행 중인 호스트와는 ping조차 안 된다. 호스트의 `eth0`과 그 위의 서브인터페이스 사이에는 패킷을 분배하는 경로가 커널에 없기 때문이다(macvlan bridge, ipvlan L2 모두 해당). 우회는 호스트에도 같은 부모를 쓰는 macvlan 서브인터페이스를 하나 더 만드는 것이다.
+**공통 제약:** 컨테이너는 물리망의 다른 장비와는 통신하지만 실행 중인 호스트와는 ping조차 안 된다. 호스트 `eth0`과 그 위 서브인터페이스 사이에 패킷을 분배하는 경로가 커널에 없기 때문이다(macvlan bridge, ipvlan L2 모두). 우회는 호스트에도 같은 부모를 쓰는 macvlan 서브인터페이스를 하나 더 만드는 것이다.
 
 ```bash
 sudo ip link add mv-shim link eth0 type macvlan mode bridge
@@ -304,15 +316,15 @@ sudo ip addr add 192.168.10.200/24 dev mv-shim
 sudo ip link set mv-shim up
 ```
 
-호스트에서 컨테이너로 헬스체크를 하는 설계를 세울 때 미리 감안해야 한다.
+> 🔬 **심화:** [네트워크 심화서 10장. macvlan·ipvlan·host·none·오버레이 — 1. macvlan/ipvlan은 NAT를 우회해 물리망에 직접 붙는다, 2. 호스트와 직접 통신할 수 없다](../../Infra%20network%20component/2부-Docker-네트워크/10-macvlan-ipvlan-host-none-오버레이.md)
 
 ### 5.2 host와 none
 
 **한 줄 요약:** host는 네트워크 네임스페이스를 공유해 성능을 얻는 대신 격리와 포트 독립성을 잃고, none은 루프백만 남기는 완전 격리다.
 
-`--network host`는 `CLONE_NEWNET`을 쓰지 않으므로 컨테이너가 호스트의 네트워크 네임스페이스를 그대로 본다. 컨테이너 전용 IP가 없고 호스트 IP로 직접 리슨하며 `-p`는 무시된다. veth·브리지·conntrack NAT 단계가 사라져 초당 수만&#126;수십만 연결을 다루는 프록시·로드밸런서·패킷 캡처처럼 지연과 처리량이 민감한 워크로드에서 선호된다. 대가는 명확하다. 포트 네임스페이스도 공유하므로 같은 포트를 리슨하는 두 컨테이너는 일반 프로세스끼리처럼 충돌(`EADDRINUSE`)하고, 침해 시 노출되는 네트워크 표면이 넓어지며, `NET_ADMIN` capability와 결합되면 컨테이너에서 호스트의 방화벽 규칙을 조작할 수 있다. 신뢰할 수 있고 성능이 명확한 우선순위인 워크로드에 한정한다.
+`--network host`는 `CLONE_NEWNET`을 쓰지 않아 호스트의 네트워크 네임스페이스를 그대로 쓴다. 컨테이너 전용 IP가 없고 `-p`는 무시되며, veth·브리지·conntrack NAT 단계가 사라져 지연·처리량이 민감한 프록시·로드밸런서 등에서 선호된다. 대가는 포트 네임스페이스 공유로 같은 포트를 리슨하는 컨테이너끼리 `EADDRINUSE`로 충돌하고, 침해 시 노출 표면이 넓어지며, `NET_ADMIN`과 결합되면 호스트 방화벽 규칙을 조작할 수 있다는 점이다. `--network none`은 독립된 네트워크 네임스페이스에 루프백(`lo`)만 남겨, 네트워크가 필요 없는 작업의 공격 표면을 줄이거나 외부 도구가 직접 인터페이스를 붙일 때 쓴다.
 
-`--network none`은 독립된 네트워크 네임스페이스에 루프백(`lo`)만 남긴다(기본 UP이 아닌 경우가 많음). 네트워크가 필요 없는 배치 작업의 공격 표면을 줄이거나, 별도 CNI·SR-IOV 같은 다른 솔루션을 외부 도구가 컨테이너 네임스페이스에 직접 붙이게 할 때 쓴다.
+> 🔬 **심화:** [네트워크 심화서 10장. macvlan·ipvlan·host·none·오버레이 — 3. host와 none은 네트워크 네임스페이스의 양 극단이다](../../Infra%20network%20component/2부-Docker-네트워크/10-macvlan-ipvlan-host-none-오버레이.md)
 
 ### 5.3 여섯 모드 비교
 
@@ -326,6 +338,8 @@ sudo ip link set mv-shim up
 | ipvlan | 분리 | 물리망 대역, MAC 공유 | 불필요 | 기본 불가(우회 필요) | MAC 제한 환경 |
 | host | 미분리(호스트 공유) | 호스트 IP 그대로 | 불필요 | 구분 자체가 없음 | 고성능, 신뢰 워크로드 |
 | none | 분리(루프백만) | 없음 | 해당 없음 | 불가 | 완전 격리, 수동 구성 |
+
+> 📎 **관련 참고:** [네트워크 심화서 10장. macvlan·ipvlan·host·none·오버레이 — 3.3 모드 6종 한눈에 비교](../../Infra%20network%20component/2부-Docker-네트워크/10-macvlan-ipvlan-host-none-오버레이.md)
 
 ## 실무 적용
 

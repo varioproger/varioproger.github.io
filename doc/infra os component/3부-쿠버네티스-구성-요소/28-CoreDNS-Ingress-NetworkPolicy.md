@@ -14,6 +14,8 @@ nav_order: 28
 > - 로그인/로비 REST API를 도메인으로 열려고 Ingress를 만들었는데 `ADDRESS` 칸이 비어 있거나 502/503이 난다.
 > - 네임스페이스에 기본 거부 NetworkPolicy를 걸었더니 Service 이름 조회까지 전부 실패한다.
 
+> 🔬 이 장의 네트워크 내용을 더 깊게 보려면 [네트워크 심화서 3부](../../Infra%20network%20component/3부-쿠버네티스-네트워크/index.md)를 보세요.
+
 ## 코어 — 이것만은 100%
 
 > **한 문장:** Pod의 이름 조회는 `resolv.conf`(nameserver=kube-dns ClusterIP, search 3개, `ndots:5`)를 따라 CoreDNS 플러그인 체인이 답하고, 외부에서 오는 HTTP는 Ingress/Gateway(선언)를 컨트롤러(프로그램)가 프록시 설정으로 바꿔 받으며, Pod 사이의 허용 범위는 NetworkPolicy(스펙)를 CNI가 시행한다.
@@ -57,38 +59,13 @@ nav_order: 28
 
 **한 줄 요약:** CoreDNS는 Corefile에 선언한 플러그인을 위에서 아래로 통과시키며 질의를 처리하고, 클러스터 이름은 API 서버를 watch해 만든 메모리 캐시에서 답한다.
 
-CoreDNS는 범용 DNS 서버가 아니라 **플러그인을 체인으로 엮어 동작을 조립하는 프레임워크**다. 설정은 ConfigMap `coredns`의 Corefile에 있다(`kubectl get configmap coredns -n kube-system -o yaml`).
-
-```
-.:53 {
-    errors
-    health { lameduck 5s }
-    ready
-    kubernetes cluster.local in-addr.arpa ip6.arpa {
-       pods insecure
-       fallthrough in-addr.arpa ip6.arpa
-       ttl 30
-    }
-    prometheus :9153
-    forward . /etc/resolv.conf { max_concurrent 1000 }
-    cache 30
-    loop
-    reload
-    loadbalance
-}
-```
-
-| 플러그인 | 역할 |
-|---|---|
-| `kubernetes` | **핵심.** API 서버를 watch해 Service/Pod 정보를 DNS 레코드로 응답 |
-| `forward` | `kubernetes`가 답하지 못한(클러스터 외부) 쿼리를 업스트림(노드의 `/etc/resolv.conf`가 가리키는 DNS)으로 전달 |
-| `cache` | TTL 동안 응답 캐싱 (`cache 30`이면 최대 30초) |
-| `loop` / `reload` | 자기 자신에게 되돌아오는 루프 감지 후 재시작 / ConfigMap이 바뀌면 재시작 없이 다시 읽음 |
-| `health`, `ready`, `errors`, `prometheus`, `loadbalance` | 헬스체크 엔드포인트, 오류 로깅, 메트릭, 다중 A/AAAA 응답 순서 섞기 |
-
-쿼리는 이 순서대로 체인을 거친다. `*.cluster.local`처럼 `kubernetes`가 답할 수 있으면 거기서 응답이 나가고, 외부 도메인이면 `forward`가 넘긴다. `kubernetes` 플러그인은 Informer로 Service/EndpointSlice를 watch해 내부 메모리 캐시(zone 데이터)를 갱신하고 질의는 그 캐시에서 즉시 응답하므로, 질의가 폭주해도 API 서버로 그대로 전달되지 않는다. 컨트롤러의 "읽기는 로컬 캐시에서" 원칙([22장](22-컨트롤러-매니저.md))이 DNS 서버에도 적용된 것이다.
+- 설정은 ConfigMap `coredns`의 Corefile에 있다(`kubectl get configmap coredns -n kube-system -o yaml`). 기본 체인은 `errors` → `health`/`ready` → `kubernetes` → `prometheus` → `forward` → `cache` → `loop` → `reload` → `loadbalance`다.
+- `kubernetes` 플러그인이 핵심이다. Informer로 Service/EndpointSlice를 watch해 메모리 캐시(zone 데이터)를 갱신하고 질의는 그 캐시에서 즉시 응답하므로, 질의가 폭주해도 API 서버로 전달되지 않는다. 컨트롤러의 "읽기는 로컬 캐시에서" 원칙([22장](22-컨트롤러-매니저.md))이 DNS 서버에도 적용된 것이다.
+- `forward`는 `kubernetes`가 답하지 못한 외부 쿼리를 노드의 `/etc/resolv.conf`가 가리키는 업스트림으로 넘기고, `cache 30`은 최대 30초 캐싱, `reload`는 ConfigMap 변경을 재시작 없이 반영한다.
 
 > **게임 서버 유추:** 설정 서버를 구독해 메모리 테이블을 갱신해 두고 요청은 그 테이블에서 바로 응답하는 구조와 같다. ⚠️ 이 테이블은 CoreDNS Pod마다 따로 있고, 갱신 주체는 각 Pod 안의 watch 연결이다.
+
+> 🔬 **심화:** [네트워크 심화서 18장. DNS와 서비스 디스커버리 — 1.1 CoreDNS는 플러그인을 엮어 만든 DNS 서버, 1.2 `kubernetes` 플러그인: watch로 미리 만들어 둔다](../../Infra%20network%20component/3부-쿠버네티스-네트워크/18-DNS와-서비스-디스커버리.md)
 
 ### 1.2 배포 형태와 Pod의 resolv.conf
 
@@ -104,19 +81,18 @@ search default.svc.cluster.local svc.cluster.local cluster.local
 options ndots:5
 ```
 
-CoreDNS는 보통 **2개 이상의 레플리카를 가진 Deployment**이고 앞에 `kube-dns`라는 ClusterIP Service가 있다(옛 `kube-dns`를 대체했지만 하위 호환으로 이름을 유지). `nameserver` 값은 kubelet이 Pod를 만들 때 `--cluster-dns`(기본적으로 `kube-dns` Service의 ClusterIP)를 참조해 주입한다. 따라서 **Pod의 DNS 질의는 ClusterIP → kube-proxy 데이터플레인 → EndpointSlice의 CoreDNS Pod IP라는 27장의 경로를 그대로 탄다.** 클러스터가 커지면 `cluster-proportional-autoscaler`가 CPU가 아닌 **노드 수·코어 수에 비례하는 선형 공식**으로 레플리카를 미리 늘린다.
+CoreDNS는 보통 2개 이상의 레플리카를 가진 Deployment이고 앞에 `kube-dns` ClusterIP Service가 있다. `nameserver` 값은 kubelet이 Pod 생성 시 `--cluster-dns`(기본적으로 `kube-dns` Service의 ClusterIP)를 참조해 주입한다. 따라서 **Pod의 DNS 질의는 ClusterIP → kube-proxy 데이터플레인 → EndpointSlice의 CoreDNS Pod IP라는 27장의 경로를 그대로 탄다.** 클러스터가 커지면 `cluster-proportional-autoscaler`가 노드 수·코어 수에 비례하는 선형 공식으로 레플리카를 늘린다.
+
+> 🔬 **심화:** [네트워크 심화서 18장. DNS와 서비스 디스커버리 — 1.3 CoreDNS는 평범한 Deployment + ClusterIP Service, 1.4 CoreDNS 레플리카 수와 커스텀 설정](../../Infra%20network%20component/3부-쿠버네티스-네트워크/18-DNS와-서비스-디스커버리.md)
 
 ### 1.3 DNS 레코드 규칙
 
 **한 줄 요약:** `<service>.<namespace>.svc.<cluster-domain>`, 헤드리스는 Ready Pod IP 전체, StatefulSet Pod는 Pod가 재생성돼도 유지되는 이름.
 
-| 대상 | 레코드 타입 | 응답 |
-|---|---|---|
-| 일반 Service (`payments.default.svc.cluster.local`) | A / AAAA | ClusterIP 하나 |
-| 헤드리스 Service | A / AAAA | **모든 Ready Pod IP** |
-| ExternalName | CNAME | 외부 도메인 |
+- 일반 Service(`payments.default.svc.cluster.local`)는 A/AAAA로 ClusterIP 하나, 헤드리스 Service는 **모든 Ready Pod IP**, ExternalName은 외부 도메인 CNAME을 돌려준다.
+- StatefulSet Pod는 `db-0.db-headless.default.svc.cluster.local` 같은 이름을 얻고, 이름 있는 포트는 SRV 레코드(`_http._tcp.web.default.svc.cluster.local`)로 조회해 포트 번호 하드코딩을 피할 수 있다.
 
-StatefulSet의 Pod는 헤드리스 서비스와 함께 `db-0.db-headless.default.svc.cluster.local` 같은 이름을 얻는다. 이름 있는 포트는 SRV 레코드(`_http._tcp.web.default.svc.cluster.local`)로 조회해 포트 번호를 하드코딩하지 않고 발견할 수 있다.
+> 🔬 **심화:** [네트워크 심화서 18장. DNS와 서비스 디스커버리 — 2.1 레코드 종류와 이름의 확장 형태](../../Infra%20network%20component/3부-쿠버네티스-네트워크/18-DNS와-서비스-디스커버리.md)
 
 ## 코어 2. resolv.conf가 이름 해석을 결정한다
 
@@ -124,23 +100,9 @@ StatefulSet의 Pod는 헤드리스 서비스와 함께 `db-0.db-headless.default
 
 **한 줄 요약:** 점이 `ndots`보다 적은 이름은 search 접미사를 먼저 붙여 시도하고, 외부 도메인도 예외가 아니라서 실패 질의 3개가 낭비된다.
 
-```
-쿼리: payments   (점 0개)
-① payments.default.svc.cluster.local   ← 보통 여기서 성공
-② payments.svc.cluster.local           ③ payments.cluster.local           ④ payments (절대 이름)
-
-쿼리: www.example.com   (점 2개, 여전히 ndots=5보다 작음)
-① www.example.com.default.svc.cluster.local ✗   ② ...svc.cluster.local ✗   ③ ...cluster.local ✗
-④ www.example.com   ← 여기서야 성공
-```
-
-외부 도메인 1회 조회마다 **실패가 확정된 질의 3개**를 CoreDNS에 먼저 보낸다. 원문(textbook)은 IPv4(A)/IPv6(AAAA) 질의가 함께 나가므로 최대 8개의 DNS 패킷이 될 수 있다고 설명한다. 증상은 외부 API 호출이 유난히 느림, CoreDNS CPU 높음, 트래픽이 늘면 DNS 타임아웃이다.
-
-| 완화 방법 | 설명 |
-|---|---|
-| 끝에 점 추가 | `api.example.com.`처럼 절대 이름임을 명시하면 search를 건너뛴다. 가장 간단하다 |
-| 클러스터 내부도 완전한 FQDN으로 | `postgres.database.svc.cluster.local.`처럼 끝에 점을 붙이면 한 번에 해결된다 |
-| `dnsConfig`로 `ndots` 조정 | 내부 이름을 거의 안 쓰는 워크로드만 값을 낮춘다 |
+- `payments`(점 0개)는 `payments.default.svc.cluster.local`에서 보통 성공한다. `www.example.com`(점 2개, 여전히 5 미만)은 `.default.svc.cluster.local` ✗ → `.svc.cluster.local` ✗ → `.cluster.local` ✗ → 마지막에 `www.example.com`에서야 성공한다. 외부 조회 1회마다 **실패 확정 질의 3개**가 CoreDNS로 먼저 나가고, A/AAAA까지 합치면 최대 8개의 패킷이 될 수 있다. 증상은 외부 API 호출 지연, CoreDNS CPU 상승, 트래픽 증가 시 DNS 타임아웃이다.
+- 완화책 세 가지: ① 끝에 점 추가(`api.example.com.`, 절대 이름이라 search를 건너뜀) ② 내부도 완전한 FQDN(`postgres.database.svc.cluster.local.`) ③ `dnsConfig`로 `ndots` 조정.
+- `ndots`를 너무 낮추면 내부 짧은 이름이 깨질 수 있다. 절충안은 내부 통신이 많은 워크로드는 기본값 유지, 외부 호출이 많은 워크로드만 `ndots: 1` + FQDN이다.
 
 ```yaml
 spec:
@@ -150,26 +112,22 @@ spec:
         value: "2"
 ```
 
-`ndots`를 너무 낮추면 내부 짧은 이름이 깨질 수 있다. 원문은 `ndots:2`여도 점이 1개인 `google.com`은 여전히 search를 시도하니 확실하게 하려면 `ndots:1`이어야 하지만, 그러면 `postgres.database` 같은 두 단계 이름도 search를 안 거치므로 FQDN을 써야 한다고 말한다. **절충안:** 내부 통신이 많은 워크로드는 기본값을 유지하고, 외부 API 호출이 많은 워크로드만 `ndots: 1` + FQDN을 쓴다.
+> 🔬 **심화:** [네트워크 심화서 18장. DNS와 서비스 디스커버리 — 2.2 search와 ndots의 비용을 눈으로 세기, 2.3 완화책의 경계 조건](../../Infra%20network%20component/3부-쿠버네티스-네트워크/18-DNS와-서비스-디스커버리.md)
 
 ### 2.2 dnsPolicy
 
 **한 줄 요약:** `ClusterFirst`가 기본이고, `Default`는 이름과 달리 기본값이 아니며 클러스터 이름을 못 푼다.
 
-| 값 | 동작 |
-|---|---|
-| `ClusterFirst` (기본값) | CoreDNS와 클러스터 search 목록으로 구성 |
-| `ClusterFirstWithHostNet` | `hostNetwork: true` Pod에서 `ClusterFirst` 효과를 강제 (아니면 노드의 resolv.conf를 물려받는다) |
-| `Default` | **쿠버네티스 기본값이 아니다.** 노드의 `/etc/resolv.conf`를 상속해 클러스터 내부 이름을 해석하지 못한다 |
-| `None` | resolv.conf를 비우고 `dnsConfig`에 적은 값만으로 구성 (사내 DNS를 강제하는 경우 등) |
+- `ClusterFirst`(기본값)는 CoreDNS와 클러스터 search 목록으로 구성한다. `ClusterFirstWithHostNet`은 `hostNetwork: true` Pod에서 같은 효과를 강제한다(없으면 노드의 resolv.conf를 물려받아 호스트 네트워크 DaemonSet이 Service 이름을 못 푼다).
+- `Default`는 노드의 `/etc/resolv.conf`를 상속해 클러스터 내부 이름을 해석하지 못한다. `None`은 resolv.conf를 비우고 `dnsConfig` 값만 쓴다.
 
-호스트 네트워크를 쓰는 DaemonSet은 `ClusterFirstWithHostNet`을 명시하지 않으면 Service 이름을 해석하지 못한다.
+> 🔬 **심화:** [네트워크 심화서 18장. DNS와 서비스 디스커버리 — 2.4 `dnsPolicy`와 `dnsConfig`](../../Infra%20network%20component/3부-쿠버네티스-네트워크/18-DNS와-서비스-디스커버리.md)
 
 ### 2.3 NodeLocal DNSCache와 장애 진단
 
 **한 줄 요약:** 노드마다 캐시를 두어 conntrack 경쟁을 피하고, 진단은 CoreDNS Pod → EndpointSlice → resolv.conf → ClusterIP 직접 질의 → 간헐성 순으로 좁힌다.
 
-Service 경유 UDP 질의는 연결마다 **conntrack 항목**을 만들고, 질의가 급증하면 경쟁 조건으로 조회가 5초 타임아웃 뒤 `SERVFAIL`로 실패한다. NodeLocal DNSCache는 노드마다 DaemonSet으로 링크-로컬 주소(예: 169.254.20.10)에서 대기하는 캐시를 두어, 캐시 히트가 노드를 벗어나지 않게 해 중앙 CoreDNS 부하와 conntrack 경쟁을 함께 피한다.
+Service 경유 UDP 질의는 연결마다 **conntrack 항목**을 만들고, 질의가 급증하면 경쟁 조건으로 조회가 5초 타임아웃 뒤 `SERVFAIL`로 실패한다. NodeLocal DNSCache는 노드마다 DaemonSet으로 링크-로컬 주소(예: 169.254.20.10)에 캐시를 두어, 캐시 히트가 노드를 벗어나지 않게 해 중앙 CoreDNS 부하와 conntrack 경쟁을 함께 피한다.
 
 ```bash
 kubectl get pods -n kube-system -l k8s-app=kube-dns -o wide                     # ① CoreDNS Ready?
@@ -178,16 +136,9 @@ kubectl exec <pod> -- cat /etc/resolv.conf                                      
 kubectl exec <pod> -- dig @10.96.0.10 payments.default.svc.cluster.local         # ④ ClusterIP 직접
 ```
 
-| 증상 | 유력 원인 |
-|---|---|
-| 모든 Pod에서 모든 조회 실패 | CoreDNS Pod 다운, `kube-dns` Service 문제 |
-| 특정 노드의 Pod만 실패 | 그 노드의 kube-proxy·CNI, NodeLocal DNSCache 에이전트 다운 |
-| 내부는 되는데 외부만 실패 | `forward` 설정, 업스트림 DNS 문제 |
-| 외부 조회가 유독 느림 | `ndots` 기본값의 불필요한 search 시도 |
-| 부하 때만 간헐적 `SERVFAIL`, 정확히 5초 지연 | UDP conntrack 경쟁 조건 → NodeLocal DNSCache |
-| 특정 네임스페이스만 실패 | NetworkPolicy가 DNS를 차단 (코어 4) |
+④에서 ClusterIP로는 안 되는데 CoreDNS Pod IP로 직접 질의하면 되는 경우는 kube-proxy 문제다([27장](27-Service와-kube-proxy.md)). 모든 조회 실패는 CoreDNS/`kube-dns` Service, 특정 노드만 실패는 그 노드의 kube-proxy·CNI·NodeLocal 에이전트, 외부만 실패는 `forward`·업스트림, 특정 네임스페이스만 실패는 NetworkPolicy의 DNS 차단(코어 4)을 의심한다.
 
-④에서 ClusterIP로는 안 되는데 CoreDNS Pod IP로 직접 질의하면 되는 경우는 kube-proxy 문제다([27장](27-Service와-kube-proxy.md)).
+> 🔬 **심화:** [네트워크 심화서 18장. DNS와 서비스 디스커버리 — 3.2 5초 지연의 정체: UDP conntrack 경쟁 조건, 3.3 NodeLocal DNSCache, 3.4 DNS 장애는 위에서 아래로 좁힌다(증상별 원인표)](../../Infra%20network%20component/3부-쿠버네티스-네트워크/18-DNS와-서비스-디스커버리.md)
 
 ## 코어 3. Ingress는 데이터, 컨트롤러는 프로그램
 
@@ -213,33 +164,29 @@ kubectl get ingress
 
 > **게임 서버 유추:** Ingress는 `routes.yaml`, 컨트롤러는 그 파일을 읽어 요청을 분배하는 게이트웨이 프로세스다. ⚠️ 컨트롤러가 API 서버를 watch해서 설정을 스스로 다시 만든다.
 
+> 🔬 **심화:** [네트워크 심화서 19장 — 1.5 IngressClass와 컨트롤러 선택](../../Infra%20network%20component/3부-쿠버네티스-네트워크/19-Ingress와-Gateway-API.md)
+
 ### 3.2 컨트롤러 내부와 라우팅 규칙
 
 **한 줄 요약:** watch → 설정 재계산 → 리로드(또는 동적 API)하고, ClusterIP를 건너뛰어 Pod IP로 프록시한다.
 
-```
-① Ingress, IngressClass, Service, EndpointSlice, Secret watch → ② nginx.conf 등 재생성 → ③ 리로드 → ④ 규칙에 따라 Pod로 프록시
-```
+- 컨트롤러는 Ingress/IngressClass/Service/EndpointSlice/Secret을 watch → `nginx.conf` 등 재생성 → 리로드 → 규칙대로 Pod로 프록시한다. ingress-nginx는 전체 설정을 렌더링해 리로드하고, Envoy 기반(Contour, Emissary)은 API로 라우팅 테이블만 갱신한다. EndpointSlice만 바뀌면 대부분 전체 리로드 없이 백엔드 목록만 교체한다.
+- 대부분 ClusterIP 대신 **Pod IP로 직접** 프록시해 kube-proxy 홉을 건너뛰고 세션 고정·가중치 같은 L7 로드밸런싱을 직접 한다. TLS는 컨트롤러에서 종료되며(Secret은 Ingress와 **같은 네임스페이스**) 컨트롤러 → Pod 구간은 기본 평문이다.
+- `pathType`은 `Exact`, `Prefix`(**경로 세그먼트** 단위: `/api`는 `/api/users`와 매칭되지만 `/apifoo`는 아님, 더 긴 경로 우선), `ImplementationSpecific`(컨트롤러 마음, nginx는 정규식)이다. 재시도·카나리 등은 표준 필드가 아니라 컨트롤러별 애노테이션(`nginx.ingress.kubernetes.io/canary-weight`)이라 이식성이 없고 오타가 조용히 무시된다.
 
-ingress-nginx는 전체 `nginx.conf`를 렌더링해 워커를 리로드하고(규칙이 많을수록 느림), Envoy 기반(Contour, Emissary)은 gRPC/HTTP API로 라우팅 테이블만 갱신한다. Pod 스케일로 EndpointSlice만 바뀌면 대부분 **전체 리로드 없이** 백엔드 목록만 교체한다. 대부분의 컨트롤러는 ClusterIP 대신 **Pod IP로 직접** 프록시해 kube-proxy 홉을 건너뛰고 세션 고정·가중치 같은 L7 로드밸런싱을 직접 구현한다. TLS는 컨트롤러에서 종료되며(Secret은 Ingress와 **같은 네임스페이스**), 컨트롤러 → Pod 구간은 기본적으로 평문이다.
-
-`pathType`은 `Exact`(정확히 일치), `Prefix`(**경로 세그먼트** 단위 접두사), `ImplementationSpecific`(컨트롤러 마음, nginx는 정규식)이다. `/api`(Prefix)는 `/api`, `/api/users`와 매칭되지만 `/apifoo`는 매칭되지 않으며, 더 긴 경로가 우선한다. 표준 필드는 호스트·경로·TLS·기본 백엔드뿐이고 재시도·카나리 등은 컨트롤러별 애노테이션(`nginx.ingress.kubernetes.io/canary-weight`)인데, 이식성이 없고, 문자열이라 오타를 조용히 무시하며, 인프라 팀의 TLS와 앱 팀의 라우팅이 한 오브젝트에 섞인다.
+> 🔬 **심화:** [네트워크 심화서 19장. Ingress와 Gateway API — 1.3 컨트롤러의 조정 루프와 두 가지 리로드 방식, 1.4 Pod IP로 직접 프록시한다, 2.1 정규식 경로와 rewrite — 라우팅의 경계 조건, 2.2 TLS 종료와 cert-manager, 2.3 애노테이션 난립이라는 구조적 한계](../../Infra%20network%20component/3부-쿠버네티스-네트워크/19-Ingress와-Gateway-API.md)
 
 ### 3.3 Gateway API
 
 **한 줄 요약:** GatewayClass(인프라 제공자) → Gateway(운영 팀, 리스너) → HTTPRoute(앱 팀)로 소유자를 나눈다.
 
-```
-GatewayClass   인프라 제공자·클러스터 관리자: "쓸 수 있는 게이트웨이 구현체"
-   │ 참조
-Gateway        클러스터 운영 팀: 리스너(포트, 프로토콜, TLS), "어느 네임스페이스의 Route를 붙일 수 있는가"(allowedRoutes)
-   │ parentRefs
-HTTPRoute / GRPCRoute / TCPRoute / TLSRoute / UDPRoute   앱 팀: "이 호스트/경로는 내 Service로"
-```
+- GatewayClass는 쓸 수 있는 구현체, Gateway는 리스너(포트·프로토콜·TLS)와 `allowedRoutes`, HTTPRoute/GRPCRoute/TCPRoute/TLSRoute/UDPRoute는 앱 팀의 "이 호스트/경로는 내 Service로"다(`parentRefs`로 Gateway에 붙음).
+- RBAC으로 권한을 나눌 수 있고, 헤더 매칭·가중치 분할(`backendRefs[].weight`)·경로 재작성(`URLRewrite`)이 애노테이션이 아닌 **표준 스펙 필드**다. `backendRefs`가 가리키는 것은 여전히 평범한 **Service**다.
+- `Gateway`/`GatewayClass`/`HTTPRoute`는 v1.0(2023년 10월) GA다. 스펙의 GA와 컨트롤러의 구현 완성도는 별개이므로 확인이 필요하다.
 
-RBAC으로 권한을 나눌 수 있고(앱 팀에는 자기 네임스페이스의 `HTTPRoute` 쓰기만), 헤더 매칭·가중치 분할(`backendRefs[].weight`)·경로 재작성(`URLRewrite`)이 애노테이션이 아닌 **표준 스펙 필드**가 되었다. 원문은 `Gateway`/`GatewayClass`/`HTTPRoute`가 v1.0(2023년 10월)에 GA됐고 2026년 6월 v1.6에서 `TCPRoute`/`UDPRoute`까지 Standard 채널로 승격됐다고 설명하지만, **스펙의 GA와 컨트롤러의 구현 완성도는 별개**이므로 확인이 필요하다. `backendRefs`가 가리키는 것은 여전히 평범한 **Service**다.
+> 🔬 서비스 메시(사이드카 mTLS 등 동서 트래픽 제어)는 이 책의 범위 밖이다. 더 보려면 [네트워크 심화서 20장. 서비스 메시 데이터플레인](../../Infra%20network%20component/3부-쿠버네티스-네트워크/20-서비스-메시-데이터플레인.md)을 보세요.
 
-> **[보충]** 서비스 메시(사이드카 mTLS 등 동서 트래픽 제어)는 이 책의 범위 밖이라 다루지 않는다.
+> 🔬 **심화:** [네트워크 심화서 19장. Ingress와 Gateway API — 3.1 GatewayClass → Gateway → Route, 3.2 애노테이션이 스펙 필드가 됐다, 3.4 지원 상태와 도입 시점](../../Infra%20network%20component/3부-쿠버네티스-네트워크/19-Ingress와-Gateway-API.md)
 
 ### 3.4 Ingress 문제 진단
 
@@ -252,14 +199,9 @@ kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller --tail=5
 kubectl get svc,endpointslice
 ```
 
-| 증상 | 원인 |
-|---|---|
-| `404 Not Found` | 호스트/경로 매칭 실패. `Host` 헤더 확인 |
-| `503 Service Unavailable` | 백엔드 엔드포인트 없음 (selector 불일치, readiness 실패 → [27장](27-Service와-kube-proxy.md)) |
-| `502 Bad Gateway` | 백엔드가 응답 안 함. 포트 불일치, 앱 크래시 |
-| `504 Gateway Timeout` | 백엔드가 느림. `proxy-read-timeout` 조정 |
-| TLS 인증서 오류 | Secret 이름·네임스페이스 확인 |
-| 리다이렉트 루프 | 앞단 LB가 이미 TLS를 종료. `X-Forwarded-Proto`를 신뢰하도록 설정 |
+`404`는 호스트/경로 매칭 실패(`Host` 헤더 확인), `503`은 백엔드 엔드포인트 없음(selector 불일치, readiness 실패 → [27장](27-Service와-kube-proxy.md)), `502`는 백엔드 무응답(포트 불일치, 앱 크래시), `504`는 백엔드 지연(`proxy-read-timeout`)이다. TLS 인증서 오류는 Secret 이름·네임스페이스를, 리다이렉트 루프는 앞단 LB가 이미 TLS를 종료한 경우이므로 `X-Forwarded-Proto` 신뢰 설정을 본다.
+
+> 🔬 **심화:** [네트워크 심화서 23장. 네트워크 장애 진단 — 2.4 Ingress 진단](../../Infra%20network%20component/4부-진단/23-네트워크-장애-진단.md)
 
 ## 코어 4. NetworkPolicy는 스펙이고, 시행은 CNI다
 
@@ -267,22 +209,7 @@ kubectl get svc,endpointslice
 
 **한 줄 요약:** 정책이 없으면 전부 허용이고, Pod가 어떤 정책의 `podSelector`에 매칭되는 순간 그 방향은 명시 허용 외 전부 거부다.
 
-NetworkPolicy가 없으면 모든 Pod가 모든 곳과 통신한다. Pod가 `podSelector`에 매칭되는 정책을 하나라도 가지면 그 Pod의 해당 방향(`policyTypes`)이 거부로 전환된다. 이 전환은 **Pod 단위**다. `policyTypes`에 `Ingress`만 있으면 Egress는 여전히 전허용이고, `egress: []`는 "아무것도 허용하지 않음"이다. 여러 정책은 허용 규칙이 **합집합(OR)** 으로 누적되며 표준 NetworkPolicy에는 deny 규칙이 없다.
-
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata: { name: api-policy, namespace: shop }
-spec:
-  podSelector: { matchLabels: { app: api } }   # ① 적용 대상
-  policyTypes: [Ingress, Egress]               # ② 통제할 방향
-  ingress:                                     # ③ 허용할 인바운드
-    - from: [ { podSelector: { matchLabels: { app: frontend } } } ]
-      ports: [ { protocol: TCP, port: 8080 } ]
-  egress:                                      # ④ 허용할 아웃바운드
-    - to: [ { podSelector: { matchLabels: { app: database } } } ]
-      ports: [ { protocol: TCP, port: 5432 } ]
-```
+NetworkPolicy가 없으면 모든 Pod가 모든 곳과 통신한다. Pod가 `podSelector`에 매칭되는 정책을 하나라도 가지면 그 Pod의 해당 방향(`policyTypes`)이 거부로 전환된다. 전환은 **Pod 단위·방향 단위**다(`policyTypes`에 `Ingress`만 있으면 Egress는 여전히 전허용, `egress: []`는 아무것도 허용하지 않음). 여러 정책은 허용 규칙이 **합집합(OR)** 으로 누적되며 표준 NetworkPolicy에는 deny 규칙이 없다.
 
 가장 흔한 함정은 `from` 리스트의 하이픈 위치다. **별도 항목은 OR, 한 항목 안의 여러 필드는 AND**다.
 
@@ -297,24 +224,17 @@ spec:
       podSelector: { matchLabels: { app: frontend } }
 ```
 
-들여쓰기 한 칸 차이로 방화벽 범위가 완전히 달라지며, "너무 넓게 열렸다/너무 좁게 막혔다" 사고의 상당수가 여기서 나온다.
+> 🔬 **심화:** [네트워크 심화서 21장. NetworkPolicy와 네트워크 보안 — 1.1 전환 단위와 `policyTypes`, 1.3 정책은 합집합으로 누적되고, 서로를 부정하지 못한다, 2.1 리스트 항목이냐 한 항목 안이냐](../../Infra%20network%20component/3부-쿠버네티스-네트워크/21-NetworkPolicy와-네트워크-보안.md)
 
 ### 4.2 시행은 CNI의 몫이다
 
 **한 줄 요약:** API 서버는 저장만 하고 kube-proxy도 관여하지 않으며, CNI가 지원하지 않으면 조용히 무시된다.
 
-kube-proxy는 Service 가상 IP를 Pod IP로 바꾸는 일만 한다. 차단/허용은 CNI가 NetworkPolicy를 watch해 자신의 데이터플레인(iptables 체인, eBPF 프로그램)에 반영해야 일어난다([26장](26-쿠버네티스-네트워크-모델과-CNI.md)).
-
-| CNI | NetworkPolicy 시행 | 비고 |
-|---|---|---|
-| Calico | 지원 | iptables 또는 eBPF 데이터플레인 선택 |
-| Cilium | 지원 | eBPF 전용. `CiliumNetworkPolicy`로 L7·FQDN까지 확장 |
-| Antrea, AWS VPC CNI | 지원 | (VPC CNI는 일정 버전 이상, 별도 에이전트 구성) |
-| Flannel, kindnet (kind 기본) | **미지원** | 에러도 경고도 없이 조용히 무시 |
-
-"정책을 적용했는데 여전히 통신된다"면 가장 먼저 `kubectl get pods -n kube-system`으로 어떤 CNI가 떠 있는지 확인한다. 표준 NetworkPolicy는 L3/L4(IP, 포트)만 다루고 클러스터 전역 정책·거부 규칙·도메인 기반 egress가 없다. 이를 보완하는 `AdminNetworkPolicy`는 원문 기준 아직 `v1alpha1`이다.
+kube-proxy는 Service 가상 IP를 Pod IP로 바꾸는 일만 한다. 차단/허용은 CNI가 NetworkPolicy를 watch해 자신의 데이터플레인(iptables 체인, eBPF 프로그램)에 반영해야 일어난다([26장](26-쿠버네티스-네트워크-모델과-CNI.md)). Calico·Cilium·Antrea(및 일정 버전 이상의 AWS VPC CNI)는 시행하고, Flannel과 kindnet(kind 기본)은 **미지원**이라 에러도 경고도 없이 무시된다. "정책을 적용했는데 여전히 통신된다"면 먼저 `kubectl get pods -n kube-system`으로 CNI를 확인한다. 표준 NetworkPolicy는 L3/L4만 다루며, Cilium은 `CiliumNetworkPolicy`로 L7·FQDN까지 확장하고, 클러스터 전역 정책용 `AdminNetworkPolicy`는 아직 `v1alpha1`이다.
 
 > **게임 서버 유추:** iptables 규칙 파일(오브젝트)과 실제로 패킷을 거르는 netfilter(CNI)의 관계다. ⚠️ 쿠버네티스에서는 규칙을 올려도 시행하는 구현이 정책을 지원하지 않으면 에러 없이 무효다.
+
+> 🔬 **심화:** [네트워크 심화서 21장. NetworkPolicy와 네트워크 보안 — 3.1 스펙과 시행은 별개, 3.2 iptables 기반 vs eBPF 기반 시행, 3.3 Cilium의 L7 확장, 4.3 AdminNetworkPolicy: 네임스페이스 소유자가 못 푸는 가드레일](../../Infra%20network%20component/3부-쿠버네티스-네트워크/21-NetworkPolicy와-네트워크-보안.md)
 
 ### 4.3 제로 트러스트 패턴: 기본 거부 + 최소 허용 + DNS 예외
 
@@ -342,6 +262,8 @@ spec:
 ```
 
 Egress 기본 거부는 **CoreDNS로 가는 질의도 막아** 앱 입장에서는 네트워크 전체가 죽은 것처럼 보인다. 자주 쓰는 패턴은 3계층 앱(frontend는 인그레스에서만 받고 backend로만 나가며 + DNS, backend는 frontend에서만 받고 database로만 나감, database는 backend에서만 받고 나가는 곳 없음)과 클라우드 메타데이터 서비스 차단(egress에서 `169.254.169.254/32`를 `ipBlock.except`로 제외, [30장](30-설정-보안.md))이다.
+
+> 🔬 **심화:** [네트워크 심화서 21장. NetworkPolicy와 네트워크 보안 — 4.1 순서: 기본 거부 → 최소 허용 → DNS 확인, 4.2 계층화와 자주 쓰는 패턴](../../Infra%20network%20component/3부-쿠버네티스-네트워크/21-NetworkPolicy와-네트워크-보안.md)
 
 ## 실무 적용
 

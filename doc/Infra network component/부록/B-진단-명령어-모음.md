@@ -9,6 +9,8 @@ nav_order: 2
 
 네트워크 장애 진단에 쓰는 명령을 계층별로 모았다. 절 순서는 아래 계층에서 위 계층으로 올라가는 순이다(소켓 → 네임스페이스·인터페이스 → netfilter·conntrack → 오버레이·MTU → Docker → 쿠버네티스 Service·DNS·정책 → 관측 도구). 장애 때 확인하는 순서(DNS → 노드 간 연결 → Service → 정책 → 노드 자원)는 [23장](../4부-진단/23-네트워크-장애-진단.md)을 따르고, 맨 끝 14절의 증상 색인으로 해당 절을 찾는다. `web`, `<pod>`, `k8s-guide-worker`(kind 노드 컨테이너 이름), `10.244.2.7` 같은 이름과 값은 예시이므로 실제 환경에 맞게 바꿔 쓴다. 괄호 안의 숫자는 이 명령을 설명하는 장이다.
 
+> **입문 책과의 관계** — `kubectl get svc`·`get endpointslices`·`get ingress`·`get ingressclass`·`describe ingress`·`get networkpolicy -A`·`exec ... cat /etc/resolv.conf`·`exec ... dig`·CoreDNS `logs` 같은 기본 조회는 [입문 책 부록 B](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/부록/B-명령어-모음.md)의 "네트워크 확인"에 있어 이 부록에서는 되풀이하지 않았다. 아래는 계층별 내부 확인(소켓·네임스페이스·netfilter·오버레이·kube-proxy 모드별 규칙·eBPF 도구)과 증상 색인에 집중한다.
+
 > **[보충]** 명령어 자체와 옵션은 참고 자료(`linux/06`, `docker-fundamental` 11&#126;18장, `Kubernetes_Internals_Network_Guide` 19장과 부록 A, `kubernetes-textbook-main` 9·10·11·19·23장)에 실린 것만 골랐다. 각 줄의 한글 설명 중 원문 주석이 아닌 것은 명령의 의미를 풀어 쓴 것이다. 이 환경(Windows)에서는 실행해 보지 못했으므로 "실행 검증됨"이 아니다. `docker exec k8s-guide-worker ...` 형태는 kind 클러스터의 노드가 Docker 컨테이너라는 원천 실습 환경 기준이며, 일반 노드에서는 `docker exec k8s-guide-worker`를 빼고 노드에서 직접 실행한다.
 
 ## 1. 소켓·TCP·포트 (2장)
@@ -44,7 +46,7 @@ docker run --rm --net=host nginx:latest              # 호스트 net ns 공유
 docker run --rm --net=container:app busybox ip addr  # 다른 컨테이너의 net ns 공유 (사이드카 패턴)
 ```
 
-Pod를 손으로 조립하는 순서는 다음과 같다(19장 실습, 루트 권한 필요).
+Pod를 손으로 조립하는 순서는 다음과 같다(원천 textbook 19장 실습, 루트 권한 필요).
 
 ```bash
 ip netns add pod-lab                                          # pause 역할의 빈 네임스페이스
@@ -202,15 +204,13 @@ kubectl set env daemonset aws-node -n kube-system ENABLE_PREFIX_DELEGATION=true
 ## 8. Service·EndpointSlice·kube-proxy (16, 17장)
 
 ```bash
-kubectl get svc web                                                    # ClusterIP 할당 여부
-kubectl get svc <svc> -o jsonpath='{.spec.clusterIP}'
+kubectl get svc <svc> -o jsonpath='{.spec.clusterIP}'                  # ClusterIP 할당 여부 (기본 `get svc`는 입문 책 부록 B)
 kubectl get svc web -o jsonpath='{.spec.selector}'                     # 셀렉터
 kubectl get pods --show-labels                                         # Pod 라벨과 대조
 kubectl get svc web -o jsonpath='{.spec.ports}'                        # Service 포트
 kubectl get pod <pod> -o jsonpath='{.spec.containers[*].ports}'        # 컨테이너 포트
 kubectl get pods -l app=web                                            # Ready 여부
-kubectl get endpointslices -o wide                                     # 엔드포인트 (비어 있으면 셀렉터 불일치나 Ready 아님)
-kubectl get endpointslices -l kubernetes.io/service-name=<svc> -o yaml # ready/terminating 조건
+kubectl get endpointslices -l kubernetes.io/service-name=<svc> -o yaml # ready/terminating 조건 (비어 있으면 셀렉터 불일치나 Ready 아님)
 
 # 세 점 호출 (Pod IP → ClusterIP → DNS 이름)
 kubectl run t --rm -it --image=nicolaka/netshoot --restart=Never -- curl -s <POD_IP>:8080
@@ -231,15 +231,12 @@ kubectl get --raw /metrics 2>/dev/null | grep kubeproxy_sync_proxy_rules_duratio
 ## 9. DNS (9, 18장)
 
 ```bash
-kubectl exec -it <pod> -- cat /etc/resolv.conf                         # nameserver·search·ndots
-kubectl exec -it <pod> -- dig <service>.<namespace>.svc.cluster.local
-kubectl exec -it <pod> -- dig +search <service>                        # search 목록 적용 조회
+kubectl exec -it <pod> -- dig +search <service>                        # search 목록 적용 조회 (resolv.conf·기본 dig는 입문 책 부록 B)
 dig @10.96.0.10 kubernetes.default.svc.cluster.local                   # kube-dns Service IP로 직접
 dig @<coredns-pod-ip> kubernetes.default.svc.cluster.local             # CoreDNS Pod IP로 직접
 nslookup kubernetes.default
 nslookup google.com                                                    # 외부 이름
 kubectl get pods -n kube-system -l k8s-app=kube-dns
-kubectl logs -n kube-system -l k8s-app=kube-dns --tail=50
 kubectl get endpointslice -n kube-system -l kubernetes.io/service-name=kube-dns
 kubectl get configmap coredns -n kube-system -o yaml                   # Corefile
 ```
@@ -247,10 +244,8 @@ kubectl get configmap coredns -n kube-system -o yaml                   # Corefil
 ## 10. Ingress (19장)
 
 ```bash
-kubectl get ingress                                                    # ADDRESS가 비어 있으면 컨트롤러 미처리
-kubectl get ingressclass
-kubectl get ingress <name> -o jsonpath='{.spec.ingressClassName}'
-kubectl describe ingress <name>                                        # Events
+kubectl get ingress <name> -o jsonpath='{.spec.ingressClassName}'      # IngressClass 대조 (ADDRESS·describe는 입문 책 부록 B)
+curl -H "Host: web.localdev.me" http://localhost/                      # Host 헤더로 호스트 규칙 재현 (404 확인)
 kubectl logs -n ingress-nginx -l app.kubernetes.io/component=controller --tail=50
 kubectl exec -n ingress-nginx <controller-pod> -- cat /etc/nginx/nginx.conf | grep -A20 "server_name shop"
 kubectl exec -n ingress-nginx <controller-pod> -- curl -s http://web.default.svc.cluster.local   # 컨트롤러에서 백엔드 직접
@@ -259,8 +254,9 @@ kubectl exec -n ingress-nginx <controller-pod> -- curl -s http://web.default.svc
 ## 11. NetworkPolicy·Cilium·Hubble (21, 22장)
 
 ```bash
-kubectl get networkpolicy -A
-kubectl describe networkpolicy <policy> -n <namespace>
+kubectl get pods -n kube-system                                        # 어떤 CNI가 떠 있는지 (정책을 시행하는 CNI인지)
+kubectl describe networkpolicy <policy> -n <namespace>                 # 정책 상세 (목록 조회는 입문 책 부록 B)
+kubectl hns tree org                                                   # HNC 계층 확인 (정책 상속, 21장)
 
 cilium status                                                          # Cilium 상태
 cilium status | grep KubeProxyReplacement                              # kube-proxy 대체 모드 확인
@@ -272,6 +268,8 @@ cilium monitor --type policy-verdict                                   # 정책 
 hubble observe --namespace shop                                        # 네임스페이스의 흐름
 hubble observe --namespace shop --verdict DROPPED                      # 정책에 의해 거부된 흐름
 hubble observe --to-pod shop/backend-abc123 --follow                   # 특정 Pod를 목적지로, 실시간
+cilium hubble port-forward &                                           # Hubble 접속 준비
+hubble observe --namespace production -f                               # 네임스페이스 흐름 실시간
 ```
 
 > **[보충]** 원천끼리 Hubble 표기가 다르다. 본문(19.4)과 실습은 `--verdict DROPPED`와 `--to-pod`를, 부록 A.11은 `hubble observe --pod <namespace>/<pod> --verdict DENIED`를 쓴다. 더 상세한 본문 표기를 앞에 두었으며 실제 환경에서는 `hubble observe --help`로 확인한다.
@@ -280,7 +278,7 @@ hubble observe --to-pod shop/backend-abc123 --follow                   # 특정 
 
 ```bash
 # Pod 안 (kubectl debug로 같은 net ns 공유)
-kubectl debug -it <pod-name> --image=nicolaka/netshoot --target=<container-name> -- tcpdump -i any -n port 80
+kubectl debug -it <pod-name> --image=nicolaka/netshoot --target=<container-name> -- tcpdump -i any -n port 80   # 입문 책 부록 B의 debug 형태에서 tcpdump까지
 kubectl debug pod-a -it --image=nicolaka/netshoot --target=app -- tcpdump -i eth0 -nn
 
 # 노드에서 Pod net ns 진입
@@ -317,4 +315,4 @@ sonobuoy run --e2e-focus="\[sig-network\].*Conformance" --wait         # 네트�
 | Docker 게시 포트 접속 실패 | 4절 `iptables-save -t nat`의 DOCKER 체인 DNAT 규칙, 6절 `docker-proxy` 프로세스 |
 | 컨테이너 이름 해석 실패 | 6절 DNS (`resolv.conf`가 127.0.0.11인지, 같은 네트워크인지) |
 
-*원문 근거: linux/06-네트워크.md (6.11 직접 확인해보기); docker-fundamental/02_격리의_기초.md (네임스페이스 실습), 11&#126;18장 실습 절 (docker network 명령, 브리지·DNS·macvlan·방화벽·Rootless·IPv6 확인); Kubernetes_Internals_Network_Guide/03-네트워크/19-eBPF-데이터플레인과-네트워크-트러블슈팅.md (19.3&#126;19.5), 부록/A-진단-명령어-치트시트.md (A.8&#126;A.11); kubernetes-textbook-main/05-내부-동작-파헤치기/19·23장 (Pod 수작업 조립, iptables·conntrack·MTU·진단·Sonobuoy), 03-애플리케이션-노출과-데이터/09·10·11장 (9.5&#126;9.7, 10.6, 11.7)*
+*원문 근거: linux/06-네트워크.md (6.11 직접 확인해보기); docker-fundamental/02_격리의_기초.md (네임스페이스 실습), 11&#126;18장 실습 절 (docker network 명령, 브리지·DNS·macvlan·방화벽·Rootless·IPv6 확인); Kubernetes_Internals_Network_Guide/03-네트워크/19-eBPF-데이터플레인과-네트워크-트러블슈팅.md (19.3&#126;19.5), 부록/A-진단-명령어-치트시트.md (A.8&#126;A.11); kubernetes-textbook-main/05-내부-동작-파헤치기/19·23장 (Pod 수작업 조립, iptables·conntrack·MTU·진단·Sonobuoy, 23.3 Hubble), 04-클러스터-운영/13-네임스페이스와-멀티테넌시.md (13.6 `kubectl hns`), 03-애플리케이션-노출과-데이터/09·10·11장 (9.5&#126;9.7, 10.6, 11.7)*

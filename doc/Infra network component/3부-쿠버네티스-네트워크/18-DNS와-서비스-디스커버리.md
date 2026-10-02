@@ -19,14 +19,14 @@ nav_order: 18
 > **한 문장:** 클러스터 DNS는 CoreDNS(플러그인 체인 + `kubernetes` 플러그인)가 Service/EndpointSlice를 watch해 `<service>.<namespace>.svc.cluster.local` 레코드로 답해 주고, Pod의 `/etc/resolv.conf`(search 목록 + `ndots:5`)가 짧은 이름을 그 형태로 확장하며, 그 DNS 트래픽 자체도 일반 Service 경로를 탄다.
 
 1. **CoreDNS = 플러그인 체인이자 평범한 워크로드** — `kubernetes` 플러그인이 API 서버를 watch해 메모리에 레코드를 유지하고, 모르는 이름은 `forward`가 노드의 DNS로 넘긴다. CoreDNS 앞의 `kube-dns` Service는 ClusterIP이며 이 주소가 모든 Pod의 `nameserver`다.
-2. **이름 규칙과 search/ndots** — Service는 `<service>.<namespace>.svc.<cluster-domain>`. 점이 `ndots`(기본 5)보다 적은 이름은 search 접미사를 먼저 붙여 보므로, 외부 도메인 조회에도 실패할 쿼리가 먼저 나간다. 끝에 점을 붙이거나 `dnsConfig`로 줄인다.
+2. **search/ndots는 리졸버 규칙이고, 그 비용은 CoreDNS 쪽에 흔적으로 남는다** — 짧은 이름 확장은 Pod 안의 리졸버가 `resolv.conf`만 보고 하므로 후보마다 실제 쿼리가 나가고, `NXDOMAIN`이 확정된 쿼리도 CoreDNS까지 간다. 그래서 tcpdump·CoreDNS `log`·`coredns_dns_requests_total`로 직접 세고, 완화책은 `ndots`를 낮출수록 내부 짧은 이름이 깨지는 경계 조건과 함께 고른다. 이름 규칙(FQDN, 레코드 종류)은 입문 책과 같고 SRV·`hostname`/`subdomain`만 더한다.
 3. **캐시, NodeLocal DNSCache, 진단 순서** — 대량 UDP 쿼리가 만드는 conntrack 경쟁 조건(5초 지연/SERVFAIL)을 노드마다 놓은 캐시로 피한다. DNS 장애는 CoreDNS Pod → Service/EndpointSlice → resolv.conf → ClusterIP 직접 질의 → 간헐성 순으로 좁힌다.
 
 **이 장의 학습 목표**
 
 - CoreDNS의 `Corefile` 플러그인 체인을 읽고 `kubernetes`/`forward`/`cache`/`reload` 등의 역할을 설명한다.
-- FQDN 규칙과 `search`/`ndots`가 짧은 이름을 확장하는 과정, 외부 도메인 조회가 느려지는 이유를 설명하고 완화책 세 가지를 든다.
-- `dnsPolicy`의 4가지 값(`ClusterFirst`, `ClusterFirstWithHostNet`, `Default`, `None`)을 구분한다.
+- `search`/`ndots`가 만드는 쿼리를 tcpdump·CoreDNS `log`·메트릭으로 관찰하고, 완화책(끝 점, `ndots` 낮추기, 완전한 FQDN)의 경계 조건을 설명한다.
+- `dnsConfig`의 `timeout`·`attempts`·`single-request-reopen`과 `dnsPolicy: None`의 쓰임, `hosts` 플러그인과 `hostAliases`의 범위 차이를 구분한다.
 - CoreDNS 자체 캐시와 NodeLocal DNSCache가 각각 해결하는 문제를 구분한다.
 - "DNS 조회 실패"를 계층별로 좁혀 원인을 특정한다.
 
@@ -121,29 +121,7 @@ CoreDNS도 client-go 기반 컨트롤러라서, 쿼리마다 API 서버를 부�
 
 **한 줄 요약:** `kube-dns` ClusterIP가 모든 Pod의 `nameserver`이므로, DNS 쿼리도 Service → kube-proxy 데이터플레인 → EndpointSlice의 CoreDNS Pod IP 경로를 그대로 탄다.
 
-```bash
-kubectl get deployment coredns -n kube-system
-kubectl get svc kube-dns -n kube-system
-```
-
-```
-NAME       TYPE        CLUSTER-IP   PORT(S)
-kube-dns   ClusterIP   10.96.0.10   53/UDP,53/TCP,9153/TCP
-```
-
-Service 이름이 `kube-dns`인 것은 예전 구현(kube-dns)의 이름이 하위 호환으로 남은 것이고, 실제 구현은 CoreDNS다. `10.96.0.10`은 Service CIDR의 10번째 주소로 관례상 고정된다. CoreDNS는 보통 2개 이상의 레플리카로 배포된다.
-
-Pod 안의 `/etc/resolv.conf`를 보자.
-
-```bash
-kubectl exec -it <아무 Pod> -- cat /etc/resolv.conf
-```
-
-```
-nameserver 10.96.0.10
-search default.svc.cluster.local svc.cluster.local cluster.local
-options ndots:5
-```
+> **입문 책에서 배운 것** — CoreDNS는 `kube-system`의 Deployment이고 앞의 `kube-dns` Service IP(예: `10.96.0.10`, 포트 53/UDP·TCP·9153)가 모든 Pod의 `/etc/resolv.conf` `nameserver`에 들어가며, 이름이 `kube-dns`인 것은 옛 구현의 하위 호환이다([입문 책 22장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/22-DNS와-서비스-디스커버리.md)). `10.96.0.10`은 Service CIDR의 10번째 주소로 관례상 고정되고, CoreDNS는 보통 2개 이상의 레플리카로 배포된다.
 
 이 `nameserver` 값은 kubelet이 Pod를 만들 때 `--cluster-dns` 플래그(기본적으로 `kube-dns` Service의 ClusterIP)를 참조해 주입한다. 그러므로 **Pod에서 나가는 DNS 쿼리는 16·17장에서 배운 것과 완전히 같은 경로**(ClusterIP → kube-proxy 규칙 → EndpointSlice의 CoreDNS Pod IP)를 거친다.
 
@@ -205,126 +183,94 @@ hosts {
 
 ## 코어 2. 이름 규칙과 search/ndots
 
-### 2.1 FQDN 규칙과 레코드 종류
+### 2.1 레코드 종류와 이름의 확장 형태
 
-**한 줄 요약:** Service는 `<service>.<namespace>.svc.<cluster-domain>`, StatefulSet의 개별 Pod는 헤드리스 Service 이름 앞에 `<pod-hostname>`이 붙는다.
+**한 줄 요약:** 이름 규칙 자체는 입문 책과 같고, 이 책은 SRV와 `hostname`/`subdomain`처럼 포트·Pod 단위로 이름을 얻는 형태를 더한다.
 
-```
-<service>.<namespace>.svc.<cluster-domain>
-예: payments.default.svc.cluster.local
+> **입문 책에서 배운 것** — Service FQDN은 `<service>.<namespace>.svc.<cluster-domain>`이고, 일반 Service는 ClusterIP 하나, 헤드리스는 모든 Ready Pod IP, ExternalName은 CNAME을 돌려준다. StatefulSet Pod는 헤드리스 이름 앞에 `<pod>`가 붙고 재생성돼도 이름이 유지된다([입문 책 22장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/22-DNS와-서비스-디스커버리.md)).
 
-<pod-hostname>.<headless-service>.<namespace>.svc.<cluster-domain>
-예: db-0.db-headless.default.svc.cluster.local
-```
-
-`<cluster-domain>`은 대개 `cluster.local`이며 CoreDNS의 `kubernetes` 플러그인 설정과 일치해야 한다.
-
-| 대상 | 레코드 타입 | 응답 |
-|---|---|---|
-| 일반 Service | A / AAAA | ClusterIP 하나 |
-| 헤드리스 Service | A / AAAA | **모든 Ready Pod IP** |
-| ExternalName | CNAME | 외부 도메인 |
-
-- **SRV 레코드**: 이름 있는 포트를 조회한다. `_<port-name>._<protocol>.<service>.<namespace>.svc.cluster.local`. 포트 번호를 하드코딩하지 않고 발견할 수 있다.
+- **SRV 레코드**: 이름 있는 포트를 `_<port-name>._<protocol>.<service>.<namespace>.svc.cluster.local`로 조회한다. 포트 번호를 하드코딩하지 않고 발견할 수 있어 Kafka나 Consul 같은 시스템이 활용한다(원천). 포트에 이름을 주지 않았다면 결과가 비어 있을 수 있다.
 
 ```bash
 dig +short SRV _http._tcp.web.default.svc.cluster.local
 # 0 100 8080 10-244-1-3.web.default.svc.cluster.local.
 ```
 
-- **StatefulSet Pod 이름은 Pod가 재생성돼도 유지된다.** IP는 바뀌어도 `db-0.db-headless...`는 그대로라서 DB 클러스터 설정에 적어 둘 수 있다.
-- 일반 Pod도 `<ip-with-dashes>.<namespace>.pod.cluster.local`(예: `10-244-1-3.default.pod.cluster.local`)이 있지만 거의 쓸 일이 없다.
-
-> **🎮 연결** — 게임 서버의 "방 서버 3번" 같은 고정 이름이 필요한 상태 있는 서버가 헤드리스 + StatefulSet 조합이다. 일반 Service의 이름은 로드밸런싱된 "아무 서버"를, 헤드리스의 개별 이름은 "그 서버"를 가리킨다.
-
-### 2.2 search 목록: 짧은 이름이 확장되는 과정
-
-**한 줄 요약:** 점이 `ndots`보다 적은 이름은 절대 이름으로 조회하기 **전에** search 접미사를 순서대로 붙여 먼저 시도한다.
-
-```
-search default.svc.cluster.local svc.cluster.local cluster.local
-```
-
-```
-쿼리: payments   (점 0개, ndots=5보다 작음)
-
-① payments.default.svc.cluster.local   ← 보통 여기서 성공
-② payments.svc.cluster.local           ← (실패 시)
-③ payments.cluster.local               ← (실패 시)
-④ payments                              ← 마지막에 절대 이름 그대로
-```
-
-다른 네임스페이스는 `curl postgres.database`처럼 네임스페이스를 붙여야 한다. 위 규칙대로라면 다음과 같이 풀린다.
-
-```
-① postgres.database.default.svc.cluster.local   ✗ NXDOMAIN
-② postgres.database.svc.cluster.local           ✓ 성공
-```
-
-같은 네임스페이스 안에서는 `web`처럼 짧게 쓸 수 있는 이유가 이것이고, 다른 네임스페이스의 `api`는 `api.default...`로만 확장되어 실패한다(원천 실습의 `nslookup api` 실패 → `nslookup api.shop` 성공).
-
-### 2.3 `ndots:5`의 숨은 비용
-
-**한 줄 요약:** 이 규칙은 외부 도메인에도 똑같이 적용되어, 실패가 확정된 쿼리가 먼저 CoreDNS로 나간다.
-
-```
-쿼리: www.example.com   (점 2개, 여전히 ndots=5보다 작음)
-
-① www.example.com.default.svc.cluster.local   ← 실패
-② www.example.com.svc.cluster.local           ← 실패
-③ www.example.com.cluster.local               ← 실패
-④ www.example.com                              ← 여기서야 성공
-```
-
-게다가 각 쿼리는 IPv4(A)와 IPv6(AAAA)를 함께 보내므로 원천(textbook)은 `google.com` 한 번 조회가 **최대 8개의 DNS 패킷**이라고 적는다. 증상은 외부 API 호출이 유난히 느림, CoreDNS CPU 상승, 트래픽이 늘면 DNS 타임아웃이다.
-
-> **[보충]** 두 원천은 같은 규칙을 서로 다른 예(`www.example.com` 점 2개, `google.com` 점 1개)로 설명한다. 어느 쪽이든 점이 5개 미만이면 search를 먼저 거치고, 외부 이름은 앞의 3번이 헛수고라는 결론은 같다.
-
-### 2.4 완화책 세 가지
-
-**한 줄 요약:** 끝에 점(절대 이름), `dnsConfig`로 `ndots` 조정, 처음부터 완전한 FQDN 사용.
-
-| 방법 | 설명 |
-|---|---|
-| **끝에 점 추가** | `www.example.com.`처럼 절대 이름임을 명시하면 search를 건너뛰고 곧바로 조회한다 |
-| **`dnsConfig`로 `ndots` 조정** | 클러스터 내부 이름을 거의 안 쓰는 워크로드라면 낮춘다 |
-| **완전한 FQDN 사용** | `postgres.database.svc.cluster.local.`처럼 쓰면 한 번에 해결된다 |
+- **일반 Pod의 이름**: IP 기반 A 레코드 `<ip-with-dashes>.<namespace>.pod.cluster.local`(예: `10-244-1-3.default.pod.cluster.local`)이 있지만 거의 쓸 일이 없다. 대신 Pod 스펙에 `hostname`과 `subdomain`을 주면 더 쓸 만한 이름이 생긴다. 단, `subdomain`과 같은 이름의 헤드리스 Service가 있어야 한다.
 
 ```yaml
 spec:
-  dnsConfig:
-    options:
-      - name: ndots
-        value: "2"
+  hostname: worker-a
+  subdomain: workers        # 이 이름의 헤드리스 서비스가 있어야 함
+```
+```
+worker-a.workers.default.svc.cluster.local
 ```
 
-주의할 점이 둘 있다.
+> **🎮 연결** — 게임 서버의 "방 서버 3번" 같은 고정 이름이 필요한 상태 있는 서버가 헤드리스 + StatefulSet(또는 `hostname`/`subdomain`) 조합이다. 일반 Service의 이름은 로드밸런싱된 "아무 서버"를, 헤드리스의 개별 이름은 "그 서버"를 가리킨다.
+
+### 2.2 search와 ndots의 비용을 눈으로 세기
+
+**한 줄 요약:** 확장 규칙은 입문 책과 같지만, 후보 하나하나가 실제 DNS 쿼리라서 tcpdump·CoreDNS `log`·메트릭으로 직접 셀 수 있다.
+
+> **입문 책에서 배운 것** — `search default.svc.cluster.local svc.cluster.local cluster.local`과 `ndots:5` 때문에 점이 5개 미만인 이름은 접미사 3개를 먼저 붙여 보고(`google.com` 하나가 A/AAAA까지 최대 8쿼리), 해결은 끝에 점 붙이기·`ndots` 낮추기·내부도 FQDN이다([입문 책 22장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/22-DNS와-서비스-디스커버리.md)).
+
+이 규칙은 Pod 안의 리졸버가 `resolv.conf`만 보고 적용하므로, 후보 하나하나가 별개의 질의로 CoreDNS까지 도달하고 없는 이름이면 `NXDOMAIN` 응답이 돌아온다. 그래서 낭비는 **CoreDNS 쪽 로그와 카운터에 그대로 남는다.**
+
+> **[보충]** 두 원천은 같은 규칙을 서로 다른 예(`www.example.com` 점 2개, `google.com` 점 1개)로 설명한다. 어느 쪽이든 점이 5개 미만이면 search를 먼저 거치고, 외부 이름은 앞의 3번이 헛수고라는 결론은 같다.
+
+**① CoreDNS `log` 플러그인으로 질의를 그대로 본다.** Corefile 첫 줄 아래에 `log`를 추가하고 재시작한 뒤 로그를 따라간다(원천 실습).
+
+```bash
+kubectl edit configmap coredns -n kube-system        # .:53 { 아래에 log 추가
+kubectl rollout restart deployment coredns -n kube-system
+kubectl logs -n kube-system -l k8s-app=kube-dns -f
+```
+
+다른 터미널에서 `getent hosts api.shop`을 실행하면 search 후보가 순서대로 찍힌다.
+
+```
+[INFO] 10.244.1.9:47251 - 12345 "A IN api.shop.default.svc.cluster.local. udp 63 false 512" NXDOMAIN
+[INFO] 10.244.1.9:47251 - 12346 "A IN api.shop.svc.cluster.local. udp 55 false 512" NOERROR
+```
+
+`NXDOMAIN` 줄 뒤에 `NOERROR` 줄이 이어지는 것이 "다음 후보로 넘어갔다"는 증거다. 트래픽이 많은 클러스터에서 `log`를 켜 두면 로그가 폭증하므로 확인이 끝나면 반드시 제거한다.
+
+**② Pod 안에서 tcpdump로 센다.** 디버그 Pod(`nicolaka/netshoot`) 안에서 53번 포트를 잡고 같은 요청을 짧은 이름과 절대 이름으로 비교한다.
+
+```bash
+tcpdump -i any -n -l port 53 &
+curl -s -o /dev/null google.com      # google.com.default.svc.cluster.local 같은 실패 쿼리가 보인다
+curl -s -o /dev/null google.com.     # 끝에 점: 쿼리 수가 확연히 준다
+```
+
+시간으로도 잴 수 있다. `time (for i in $(seq 1 50); do getent hosts google.com > /dev/null; done)`와 `google.com.`을 쓴 같은 루프를 비교한다.
+
+**③ 규모는 CoreDNS 메트릭으로 본다.** `ndots:5`와 `ndots:1` + FQDN 두 배포에 같은 외부 호출 부하를 주고 증가량을 비교하는 것이 원천의 과제다.
+
+```bash
+kubectl port-forward -n kube-system svc/kube-dns 9153:9153 &
+curl -s localhost:9153/metrics | grep -E 'coredns_dns_requests_total|coredns_dns_request_duration'
+```
+
+> **🎮 연결** — 이름 해석은 `getaddrinfo()` 한 번이지만 그 뒤에서는 위 로그의 줄 수만큼 UDP 왕복이 일어난다. [2장](../1부-리눅스-네트워크-기초/02-소켓-TCP-포트-DNS-기초.md)에서 본 대로 이 호출은 동기 블로킹이라, 이벤트 루프 안에서 부르면 이 모든 대기가 서버 전체의 지연으로 번진다. 참고로 Docker 사용자 정의 네트워크 컨테이너의 `resolv.conf`는 `ndots:0`이다([9장](../2부-Docker-네트워크/09-Docker-DNS와-서비스-디스커버리.md)). 같은 짧은 이름이 쿠버네티스에서는 search를 먼저 거친다.
+
+### 2.3 완화책의 경계 조건
+
+**한 줄 요약:** 세 가지 완화책(끝에 점, `ndots` 낮추기, 완전한 FQDN)은 입문 책과 같고, 깊이는 "어디까지 낮추면 무엇이 깨지는가"에 있다.
 
 - `ndots`를 너무 낮추면 클러스터 내부의 짧은 이름 조회가 실패할 수 있다. 예를 들어 `ndots:1`이면 점이 1개 이상인 이름은 곧바로 절대 이름으로 취급되어 `postgres.database` 같은 이름이 search를 거치지 않는다. 그래서 매니페스트에서 FQDN을 써야 한다.
-- textbook은 `ndots:2`로도 `google.com`(점 1개)은 여전히 2 미만이라 search를 시도하므로, 확실히 막으려면 `ndots:1`이라고 짚는다. 절충안은 내부 통신이 많은 워크로드는 기본값을 유지하고 외부 API 호출이 많은 워크로드만 `ndots:1` + FQDN이다.
+- textbook은 `ndots:2`로도 `google.com`(점 1개)은 여전히 2 미만이라 search를 시도하므로, 확실히 막으려면 `ndots:1`이라고 짚는다.
+- 절충안은 내부 통신이 많은 워크로드는 기본값을 유지하고 외부 API 호출이 많은 워크로드만 `ndots:1` + FQDN이다.
+- 클러스터 내부 FQDN도 끝의 점이 핵심이다. `postgres.database.svc.cluster.local.`은 점이 4개라 `ndots:5` 미만이지만, 끝의 마침표 덕분에 한 번에 해결된다.
 
-```yaml
-env:
-  - name: EXTERNAL_API
-    value: "api.example.com."      # ★ 끝에 점
-  - name: DB_HOST
-    value: "postgres.database.svc.cluster.local."
-```
+### 2.4 `dnsPolicy`와 `dnsConfig`
 
-### 2.5 `dnsPolicy`와 `dnsConfig`
+**한 줄 요약:** `dnsPolicy`는 이 Pod가 CoreDNS를 거칠지를, `dnsConfig`는 그 위의 세부 값(`timeout`·`attempts` 등)을 정한다.
 
-**한 줄 요약:** `dnsPolicy`는 이 Pod가 CoreDNS를 거칠지 말지를, `dnsConfig`는 그 위의 세부 값을 정한다.
+> **입문 책에서 배운 것** — `ClusterFirst`(기본) / `ClusterFirstWithHostNet` / `Default`(기본값이 아니라 노드의 resolv.conf 상속) / `None`의 네 값, 그리고 `hostNetwork: true` Pod는 `Default`처럼 동작하므로 `ClusterFirstWithHostNet`을 명시해야 한다는 함정([입문 책 22장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/22-DNS와-서비스-디스커버리.md)).
 
-| 값 | 동작 |
-|---|---|
-| `ClusterFirst` (기본) | 클러스터 DNS(CoreDNS)와 클러스터 search 목록. 외부 도메인은 CoreDNS가 forward |
-| `ClusterFirstWithHostNet` | `hostNetwork: true` Pod에서 `ClusterFirst`와 같은 효과를 강제 |
-| `Default` | **쿠버네티스 기본값이 아니다.** 노드의 `/etc/resolv.conf`를 그대로 상속해 CoreDNS를 거치지 않고, 클러스터 내부 이름도 못 푼다 |
-| `None` | resolv.conf를 비우고 `dnsConfig`에 명시한 값만으로 구성 |
-
-> **⚠️ `hostNetwork: true`의 함정** — `hostNetwork: true`인 Pod(예: DaemonSet)는 `dnsPolicy`가 자동으로 `Default`처럼 동작해 클러스터 Service 이름을 해석하지 못한다. `dnsPolicy: ClusterFirstWithHostNet`을 명시해야 한다.
-
-`dnsConfig`에는 추가 nameserver·search·옵션을 넣을 수 있다(원천 예시).
+`dnsConfig`에는 추가 nameserver·search·옵션을 넣을 수 있고, 이 중 `timeout`·`attempts`·`single-request-reopen`은 앞 절의 지연을 직접 줄이는 손잡이다(원천 예시).
 
 ```yaml
 spec:
@@ -346,7 +292,16 @@ spec:
 
 사내 DNS를 쓰되 클러스터 이름도 풀어야 한다면 `dnsPolicy: None` + `dnsConfig`에 CoreDNS ClusterIP(`10.96.0.10`)를 유지한 채 사내 DNS 서버를 nameserver로 추가하고, 클러스터 search 목록 3개와 사내 search를 직접 적는다.
 
-DNS를 건너뛰고 Pod의 `/etc/hosts`에 직접 매핑하는 `hostAliases`도 있지만, 원천은 임시 우회·테스트용이고 IP가 바뀌면 매니페스트를 고쳐야 하므로 영구 해법으로는 부적절하다고 한다.
+**이름을 DNS 바깥에서 고정하는 두 방법의 범위 차이.** CoreDNS의 `hosts` 플러그인(코어 1.4)은 Corefile 한 곳에서 **클러스터의 모든 Pod**에 보이는 항목을 만든다. `hostAliases`는 **그 Pod 하나**의 `/etc/hosts`에 직접 매핑한다. 후자는 DNS를 거치지 않으므로 원천은 임시 우회·테스트용이고 IP가 바뀌면 매니페스트를 고쳐야 하므로 영구 해법으로는 부적절하다고 한다.
+
+```yaml
+spec:
+  hostAliases:
+    - ip: "192.168.1.100"
+      hostnames:
+        - "legacy.internal"
+        - "old-api"
+```
 
 ---
 
@@ -492,13 +447,14 @@ DNS 조회 실패
   앞단 Service 이름 ( ? ), ClusterIP 관례 ( ? ) → 모든 Pod의 nameserver
   → DNS 쿼리도 ( ? ) → kube-proxy 규칙 → EndpointSlice 경로
 
-[코어 2] 이름
-  Service FQDN: <service>.<( ? )>.svc.<cluster-domain>
-  StatefulSet Pod: <pod>.<( ? )>.<ns>.svc.cluster.local
-  search 목록 3개: ( ? ) / ( ? ) / cluster.local
-  ndots 기본 ( ? ) → 점이 그보다 ( ? )면 search 먼저
-  완화 3: 끝에 ( ? ) / dnsConfig ndots / 완전 FQDN
-  dnsPolicy 4: ClusterFirst(기본) / ( ? ) / Default / None
+[코어 2] 이름과 비용
+  SRV 조회 이름: _<( ? )>._<protocol>.<service>.<ns>.svc.cluster.local
+  Pod hostname/subdomain 이름이 생기려면 subdomain과 같은 이름의 ( ? ) Service 필요
+  ndots 기본 ( ? ) → 점이 그보다 ( ? )면 search 먼저, 후보마다 실제 ( ? ) 발생
+  관측 3: Pod 안 ( ? ) / CoreDNS ( ? ) 플러그인(NXDOMAIN→NOERROR 줄) / 메트릭 coredns_dns_requests_total
+  ndots를 1로 낮추면 깨지는 것: ( ? ) 같은 두 단계 이름 → FQDN 필요
+  dnsConfig 옵션: timeout 기본 ( ? )초 → 2초, attempts, ( ? )
+  hosts 플러그인 = ( ? ) 범위 / hostAliases = Pod ( ? ) 범위
 
 [코어 3] 캐시와 진단
   cache 30 = 최대 ( ? )초
@@ -524,19 +480,19 @@ DNS 조회 실패
 
    </details>
 
-3. `curl web`과 `curl postgres.database`가 각각 어떤 이름 순서로 시도되는지 적어 보라.
+3. CoreDNS `log`에 `NXDOMAIN` 줄 바로 뒤에 `NOERROR` 줄이 이어서 찍혔다. 무슨 일이 있었던 것이고, 이 확인을 마친 뒤 반드시 할 일은?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   `web`: `web.default.svc.cluster.local`에서 성공(같은 네임스페이스). `postgres.database`: `postgres.database.default.svc.cluster.local`(NXDOMAIN) → `postgres.database.svc.cluster.local`(성공). → 코어 2 (2.2)
+   Pod의 리졸버가 search 후보를 순서대로 시도한 흔적이다(예: `api.shop.default.svc.cluster.local.`이 `NXDOMAIN`, 다음 후보 `api.shop.svc.cluster.local.`이 `NOERROR`). 각 후보가 실제 질의로 CoreDNS에 닿는다는 증거다. 트래픽이 많으면 로그가 폭증하므로 확인 후 `log` 플러그인을 제거한다. → 코어 2 (2.2)
 
    </details>
 
-4. 왜 `google.com` 조회가 느려지는가? 어떤 해결책이 있는가?
+4. 외부 호출 지연의 원인이 `ndots`라는 것을 어떤 증거로 확정하고, 고친 뒤 무엇이 줄었는지 어떻게 보이는가? `ndots`를 낮출 때 깨질 수 있는 것은?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   `ndots:5`라 점이 5개 미만인 이름은 search 목록을 먼저 시도한다. `google.com.default.svc.cluster.local`, `google.com.svc.cluster.local`, `google.com.cluster.local`이 모두 실패한 뒤에야 `google.com`이 성공하고, A/AAAA가 겹쳐 최대 8개 패킷이 오간다. 해결: 끝에 점을 붙인 FQDN, `dnsConfig`로 `ndots` 낮추기(낮추면 내부 이름이 깨질 수 있음), 내부 이름도 완전한 FQDN. → 코어 2 (2.3, 2.4)
+   Pod 안 `tcpdump -i any -n port 53`에서 `google.com.default.svc.cluster.local` 같은 실패 쿼리가 보이는지, 절대 이름(끝에 점)으로 바꾸면 쿼리 수가 준다는 점을 본다. 규모는 `ndots:5`와 `ndots:1` + FQDN 두 배포의 `coredns_dns_requests_total` 증가량으로 비교한다. 낮출 때는 `postgres.database` 같은 점이 있는 내부 이름이 search를 거치지 않으므로 FQDN을 써야 하고, `ndots:2`로는 `google.com`(점 1개)을 못 막아 `ndots:1`이 필요하다. → 코어 2 (2.2, 2.3)
 
    </details>
 
@@ -544,7 +500,7 @@ DNS 조회 실패
 
    <details markdown="1"><summary>답 확인</summary>
 
-   `Default`는 이름과 달리 기본값이 아니고 노드의 resolv.conf를 그대로 상속해 클러스터 이름을 못 푼다. `hostNetwork: true` Pod는 자동으로 `Default`처럼 동작하므로, `ClusterFirstWithHostNet`을 명시해야 `ClusterFirst`와 같은 효과를 얻는다. → 코어 2 (2.5)
+   `Default`는 이름과 달리 기본값이 아니고 노드의 resolv.conf를 그대로 상속해 클러스터 이름을 못 푼다. `hostNetwork: true` Pod는 자동으로 `Default`처럼 동작하므로, `ClusterFirstWithHostNet`을 명시해야 `ClusterFirst`와 같은 효과를 얻는다. `dnsConfig`로는 `timeout`(기본 5초→2초)·`attempts`·`single-request-reopen`을 조정할 수 있다. → 코어 2 (2.4)
 
    </details>
 
@@ -595,4 +551,4 @@ DNS 조회 실패
 
 ---
 
-*원문 근거: Kubernetes_Internals_Network_Guide/03-네트워크/16-DNS와-서비스-디스커버리.md (16.1 CoreDNS 아키텍처, 16.2 FQDN과 search, 16.3 캐시와 성능, 16.4 트러블슈팅); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/10-DNS와-서비스-디스커버리.md (10.1 CoreDNS, 10.2 DNS 레코드 규칙, 10.3 ndots, 10.4 DNS 정책, 10.5 NodeLocal DNSCache, 10.6 DNS 문제 진단)*
+*원문 근거: Kubernetes_Internals_Network_Guide/03-네트워크/16-DNS와-서비스-디스커버리.md (16.1 CoreDNS 아키텍처, 16.2 FQDN과 search, 16.3 캐시와 성능, 16.4 트러블슈팅); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/10-DNS와-서비스-디스커버리.md (10.1 CoreDNS, 10.2 DNS 레코드 규칙, 10.3 ndots, 10.4 DNS 정책, 10.5 NodeLocal DNSCache, 10.6 DNS 문제 진단, 10.7 DNS 전체 흐름 추적의 CoreDNS `log` 관찰); docker-fundamental/15_DNS와_서비스_디스커버리_포트_매핑의_내부_동작.md (15.1 내장 DNS의 `ndots:0` 대조)*

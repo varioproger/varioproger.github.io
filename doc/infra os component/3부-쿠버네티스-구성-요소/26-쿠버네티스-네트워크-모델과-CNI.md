@@ -14,6 +14,8 @@ nav_order: 26
 > - `ping`과 작은 요청은 되는데 큰 응답이나 TLS 핸드셰이크만 실패한다(오버레이의 MTU 문제일 수 있다).
 > - Pod가 `ContainerCreating`에서 멈추고 containerd 로그에 CNI 에러가 보인다. 노드를 늘리려는데 Pod CIDR이 모자란다.
 
+> 🔬 이 장의 네트워크 내용을 더 깊게 보려면 [네트워크 심화서 3부](../../Infra%20network%20component/3부-쿠버네티스-네트워크/index.md)를 보세요.
+
 ## 코어 — 이것만은 100%
 
 > **한 문장:** 쿠버네티스는 "모든 Pod가 고유 IP로 NAT 없이 통신한다"는 네 가지 요구사항만 정의하고, 이를 만드는 일은 런타임이 실행 파일로 호출하는 CNI 플러그인(주 플러그인 + IPAM + 메타 플러그인 체인)이 맡으며, 노드 간 전달은 오버레이·네이티브 라우팅·클라우드 IP 중 하나로 구현된다.
@@ -64,6 +66,8 @@ nav_order: 26
 
 이 모델을 "IP-per-Pod"라 부른다. 각 Pod가 독립된 호스트처럼 자기 IP와 포트 공간을 갖는다.
 
+> 📎 **관련 참고:** [네트워크 심화서 13장. 쿠버네티스 네트워크 모델과 Pod 네트워크 — 1.1 세 규칙과 한 예외 — 경계 조건](../../Infra%20network%20component/3부-쿠버네티스-네트워크/13-쿠버네티스-네트워크-모델과-Pod-네트워크.md)
+
 ### 1.2 왜 이 모델인가
 
 **한 줄 요약:** 포트 매핑 NAT의 복잡도를 애플리케이션 개발자에게 떠넘기지 않기 위해서다.
@@ -74,34 +78,24 @@ nav_order: 26
 
 ---
 
+> 📎 **관련 참고:** [네트워크 심화서 13장. 쿠버네티스 네트워크 모델과 Pod 네트워크 — 1.2 포트 매핑이 떠넘기던 네 가지 비용 · 1.3 왜 쿠버네티스가 직접 구현하지 않았는가](../../Infra%20network%20component/3부-쿠버네티스-네트워크/13-쿠버네티스-네트워크-모델과-Pod-네트워크.md)
+
 ## 코어 2. CNI = 실행 파일 호출 계약
 
 ### 2.1 네 가지 동작
 
 **한 줄 요약:** CNI는 gRPC가 아니라 "실행 파일을 특정 방식으로 호출하면 특정 방식으로 응답한다"는 계약이다.
 
-CNI(cni.dev)는 쿠버네티스 전용이 아닌 독립 스펙이다.
-
-| 동작 | 트리거 | 하는 일 | 반환 |
-|---|---|---|---|
-| `ADD` | Pod(샌드박스) 생성 시 | 인터페이스 생성, IP 할당, 라우팅·DNS 설정 | 할당된 IP·인터페이스·라우팅 정보(JSON) |
-| `DEL` | Pod 삭제 시 | 인터페이스 제거, IP 반환, 방화벽 규칙 정리 | 성공/실패 |
-| `CHECK` | 주기적 상태 확인 | 현재 설정이 `ADD` 결과와 일치하는지 검증 | 성공/실패 |
-| `VERSION` | 런타임이 플러그인을 처음 인식할 때 | 지원하는 CNI 스펙 버전 목록 보고 | 버전 목록(JSON) |
-
-호출 형태는 이렇다(환경변수 + stdin JSON).
+CNI(cni.dev)는 쿠버네티스 전용이 아닌 독립 스펙이고, 동작은 네 가지다. `ADD`(Pod 생성 시 인터페이스·IP·라우팅 설정, 결과 JSON 반환), `DEL`(삭제 시 정리), `CHECK`(설정이 `ADD` 결과와 일치하는지 검증), `VERSION`(지원하는 스펙 버전 보고). 호출은 환경변수(`CNI_COMMAND`, `CNI_CONTAINERID`, `CNI_NETNS`, `CNI_IFNAME`, `CNI_PATH`, `CNI_ARGS`) + stdin 설정 JSON이고, 반환 JSON에 `ips`·`routes`·`interfaces`가 담긴다.
 
 ```bash
-CNI_COMMAND=ADD \
-CNI_CONTAINERID=8f3a9c1e2b7d \
-CNI_NETNS=/var/run/netns/cni-4e5f6a7b \
-CNI_IFNAME=eth0 \
-CNI_PATH=/opt/cni/bin \
-CNI_ARGS="IgnoreUnknown=1;K8S_POD_NAMESPACE=default;K8S_POD_NAME=web-abc12" \
-/opt/cni/bin/bridge < /etc/cni/net.d/10-bridge.conflist
+CNI_COMMAND=ADD CNI_CONTAINERID=8f3a9c1e2b7d CNI_NETNS=/var/run/netns/cni-4e5f6a7b \
+CNI_IFNAME=eth0 CNI_PATH=/opt/cni/bin /opt/cni/bin/bridge < /etc/cni/net.d/10-bridge.conflist
 ```
 
-반환값은 `ips`(예: `10.244.1.5/24`, gateway `10.244.1.1`), `routes`, `interfaces`를 담은 JSON이다. [17장](../2부-컨테이너-커널-기능과-Docker/17-컨테이너를-손으로-만들기.md)에서 `ip netns`와 veth로 손으로 하던 작업이 정확히 이것이다. 설정 JSON의 `cniVersion`을 플러그인이 지원하지 않으면 `ADD` 자체가 실패하므로, CNI 업그레이드 후 `ContainerCreating`에 멈추면 버전 불일치도 의심한다.
+[17장](../2부-컨테이너-커널-기능과-Docker/17-컨테이너를-손으로-만들기.md)에서 `ip netns`와 veth로 손으로 하던 작업이 정확히 이것이다. 설정의 `cniVersion`을 플러그인이 지원하지 않으면 `ADD`가 실패하므로, CNI 업그레이드 후 `ContainerCreating`에 멈추면 버전 불일치도 의심한다.
+
+> 🔬 **심화:** [네트워크 심화서 14장. CNI 스펙과 IPAM — 1.2 네 가지 동작 · 1.4 실제 호출 형태와 반환값 · 1.5 VERSION 협상](../../Infra%20network%20component/3부-쿠버네티스-네트워크/14-CNI-스펙과-IPAM.md)
 
 ### 2.2 누가 호출하는가
 
@@ -117,33 +111,15 @@ kubelet ─ CRI: RunPodSandbox → 런타임(containerd/CRI-O)
 
 그래서 CNI 실패는 kubelet이 아니라 **containerd/CRI-O 로그**에 먼저 나타난다(`journalctl -u containerd | grep -i cni`). [23장](23-kubelet과-CRI.md)의 `syncPod` ⑥단계다.
 
+> 🔬 **심화:** [네트워크 심화서 14장. CNI 스펙과 IPAM — 1.3 누가 호출하는가 — kubelet이 아니라 런타임](../../Infra%20network%20component/3부-쿠버네티스-네트워크/14-CNI-스펙과-IPAM.md)
+
 ### 2.3 설정 파일 선택과 플러그인 체인
 
 **한 줄 요약:** `/etc/cni/net.d/`에서 파일명 사전순 하나만 채택하고, `.conflist`의 `plugins` 배열이 순서대로 호출된다.
 
-런타임은 `/etc/cni/net.d/`의 `.conf`/`.conflist`/`.json`을 스캔해 **사전순으로 가장 앞선 하나만** 사용한다. `10-kindnet.conflist`와 `99-multus.conf`가 같이 있으면 `10-`이 이긴다. CNI를 교체할 때 "분명히 apply했는데 예전 CNI가 계속 동작한다"는 증상의 원인이다.
+런타임은 `/etc/cni/net.d/`의 `.conf`/`.conflist`/`.json` 중 **사전순으로 가장 앞선 하나만** 쓴다(`10-kindnet.conflist`와 `99-multus.conf`가 같이 있으면 `10-`이 이긴다). CNI 교체 후 "apply했는데 예전 CNI가 계속 동작한다"는 증상의 원인이다. `plugins` 배열은 ① 주 플러그인(ptp/bridge/calico/cilium-cni: 인터페이스 생성·IPAM 위임·라우팅) → ② `portmap`(hostPort를 iptables DNAT로) → ③ `bandwidth`(tc 대역폭 제한) → ④ firewall/tuning/sbr/vrf 순으로 `prevResult`를 넘기며 호출되고, 각 메타 플러그인은 한 가지 일만 한다. 대역폭 애노테이션은 kubelet이 Pod 스펙에서 읽어 `runtimeConfig`로 전달한 값이다. 실행 파일은 `/opt/cni/bin/`에 있다.
 
-```json
-{ "cniVersion": "1.0.0", "name": "k8s-pod-network",
-  "plugins": [
-    { "type": "ptp", "ipMasq": false, "mtu": 1450,
-      "ipam": { "type": "host-local", "dataDir": "/run/cni-ipam-state",
-                "routes": [{ "dst": "0.0.0.0/0" }],
-                "ranges": [[{ "subnet": "10.244.1.0/24" }]] } },
-    { "type": "portmap", "capabilities": { "portMappings": true } },
-    { "type": "bandwidth", "capabilities": { "bandwidth": true } }
-  ] }
-```
-
-```
-① 주 플러그인 (ptp / bridge / calico / cilium-cni): 인터페이스 생성, IPAM 위임, 라우팅
-    ↓ prevResult 전달
-② portmap (메타): hostPort → containerPort를 iptables DNAT로
-③ bandwidth (메타): tc로 인그레스/이그레스 대역폭 제한
-④ firewall / tuning / sbr / vrf (필요 시)
-```
-
-메타 플러그인은 각자 한 가지 일만 한다(유닉스 철학). 대역폭 애노테이션(`kubernetes.io/ingress-bandwidth: "10M"`)은 CNI 자체 필드가 아니라 kubelet이 Pod 스펙에서 읽어 `runtimeConfig`로 변환해 전달한 값이다. 실행 파일은 `/opt/cni/bin/`에 있다.
+> 🔬 **심화:** [네트워크 심화서 14장. CNI 스펙과 IPAM — 2.1 설정 파일과 선택 규칙 · 2.2 플러그인 체인](../../Infra%20network%20component/3부-쿠버네티스-네트워크/14-CNI-스펙과-IPAM.md)
 
 ---
 
@@ -153,32 +129,17 @@ kubelet ─ CRI: RunPodSandbox → 런타임(containerd/CRI-O)
 
 **한 줄 요약:** IP 할당은 인터페이스를 만드는 주 플러그인과 분리된 위임 가능한 플러그인이다.
 
-| IPAM 플러그인 | 방식 | 상태 저장 위치 |
-|---|---|---|
-| `host-local` | 노드에 할당된 CIDR 안에서 로컬 파일로 순차 할당 | 노드 로컬 디스크(`dataDir`) |
-| `dhcp` | 외부 DHCP 서버에 임대 요청(데몬 필요) | DHCP 서버 |
-| `static` | 고정 IP를 설정에서 그대로 사용 | 없음 |
-| Calico IPAM / Cilium IPAM | 클러스터 전역 상태(etcd 또는 CRD)에서 블록 단위 할당 | 클러스터 전역 저장소 |
+IPAM 플러그인은 `host-local`(노드에 할당된 CIDR 안에서 로컬 파일로 순차 할당, 동시 `ADD`는 파일 잠금(flock)으로 보호), `dhcp`(외부 DHCP 임대, 데몬 필요), `static`(고정 IP), Calico/Cilium IPAM(etcd 또는 CRD의 클러스터 전역 상태에서 블록 단위 할당)이 있다. C++로 치면 노드 로컬 ID 할당기를 파일 락으로 보호하는 것이다.
 
-`host-local`은 `subnet` 안에서 다음 IP를 순차 탐색해 할당하고 결과를 파일(`/run/cni-ipam-state/...`)로 남기며, 동시 `ADD`가 같은 IP를 받지 않도록 **파일 잠금(flock)** 을 건다. C++로 치면 노드 로컬 ID 할당기를 파일 락으로 보호하는 것이다.
+> 🔬 **심화:** [네트워크 심화서 14장. CNI 스펙과 IPAM — 3.1 IPAM이 분리되어 있는 이유](../../Infra%20network%20component/3부-쿠버네티스-네트워크/14-CNI-스펙과-IPAM.md)
 
 ### 3.2 Node.spec.podCIDR과 node-ipam-controller
 
 **한 줄 요약:** `/16`을 `/24`로 잘라 노드에 나눠 주는 것은 컨트롤러, 그 안의 개별 IP는 노드의 CNI가 정한다.
 
-```
-kube-controller-manager의 node-ipam-controller (Informer/워크큐 패턴)
-  └ watch: Node 생성 → 클러스터 CIDR(--cluster-cidr)에서
-    --node-cidr-mask-size 크기로 잘라 새 Node에 할당
-  └ Node.spec.podCIDR(듀얼스택이면 spec.podCIDRs)에 기록
-```
+kube-controller-manager의 node-ipam-controller가 Node 생성을 watch해 `--cluster-cidr`를 `--node-cidr-mask-size`로 잘라 `Node.spec.podCIDR`(듀얼스택은 `podCIDRs`)에 기록한다(클러스터 전역 층, 노드 추가/제거 때만). 노드의 CNI IPAM은 그 서브넷 안에서 `ADD`마다 Pod IP를 즉시 배분한다(노드 로컬 층). 빈번한 Pod IP 할당을 API 서버 왕복 없이 노드에서 끝내려는 설계다. Calico/Cilium IPAM은 노드 간 블록 재배분을 지원하지만 전역 조율 복잡도가 생긴다.
 
-```
-① 클러스터 전역 층: node-ipam-controller가 노드에 서브넷 배분 (API 서버 경유, 노드 추가/제거 때만)
-② 노드 로컬 층: CNI IPAM이 그 서브넷 안에서 Pod에 개별 IP 배분 (CNI ADD마다, 즉시)
-```
-
-빈번한 작업(Pod IP 할당)을 API 서버 왕복 없이 노드에서 끝내는 설계다. `host-local`은 노드별로 격리된 서브넷을 전제로 하지만, Calico/Cilium IPAM은 노드 간 블록 재배분(한 노드가 서브넷을 다 쓰면 블록 추가 임차)을 지원한다. 대신 상태를 클러스터 전역에서 조율해야 하는 복잡도가 생긴다.
+> 🔬 **심화:** [네트워크 심화서 14장. CNI 스펙과 IPAM — 3.2 노드에 서브넷을 나눠 주는 층 — node-ipam-controller · 3.3 두 층으로 나뉜 이유와 규모 계산](../../Infra%20network%20component/3부-쿠버네티스-네트워크/14-CNI-스펙과-IPAM.md)
 
 ### 3.3 CIDR 설계와 한계
 
@@ -189,7 +150,9 @@ kube-controller-manager의 node-ipam-controller (Informer/워크큐 패턴)
 노드당 최대 Pod 수 = /24 사용 가능 주소(254) 와 kubelet --max-pods(기본 110) 중 작은 값
 ```
 
-운영 중인 클러스터에서 넓히려면 모든 노드의 라우팅·IPAM 상태 재조정이 필요해 매우 번거롭다. 노드가 256개를 넘으면 IP를 할당할 수 없다. AWS VPC CNI처럼 VPC 서브넷의 IP를 직접 쓰는 방식은 서브넷이 작으면 금방 소진되고, 노드당 Pod 수가 인스턴스 타입(ENI 수 × ENI당 IP)에 묶인다(원문 예: m5.large는 3×10-1=29). 접두사 위임(prefix delegation)으로 완화할 수 있다.
+운영 중 넓히기는 모든 노드의 라우팅·IPAM 재조정이 필요해 매우 번거롭고, 노드가 256개를 넘으면 IP를 할당할 수 없다. AWS VPC CNI처럼 VPC IP를 직접 쓰면 서브넷 소진과 인스턴스 타입(ENI 수 × ENI당 IP)에 묶인 노드당 Pod 수가 문제이며, 접두사 위임(prefix delegation)으로 완화한다.
+
+> 🔬 **심화:** [네트워크 심화서 14장. CNI 스펙과 IPAM — 3.3 두 층으로 나뉜 이유와 규모 계산](../../Infra%20network%20component/3부-쿠버네티스-네트워크/14-CNI-스펙과-IPAM.md) · [네트워크 심화서 15장 — 1.4 방식 3: 클라우드 네이티브 IP](../../Infra%20network%20component/3부-쿠버네티스-네트워크/15-CNI-플러그인과-패킷-경로.md)
 
 ---
 
@@ -199,27 +162,21 @@ kube-controller-manager의 node-ipam-controller (Informer/워크큐 패턴)
 
 **한 줄 요약:** 물리 네트워크는 Pod 대역을 모르므로, 캡슐화하거나 경로를 알려 주거나 VPC IP를 직접 쓴다.
 
-노드 A의 Pod(`10.244.1.5`)가 노드 B의 Pod(`10.244.2.7`)로 보낼 때 물리 스위치·라우터는 `10.244.0.0/16`을 모르고 노드 IP(`192.168.1.0/24` 등)만 안다.
+노드 A의 Pod(`10.244.1.5`)가 노드 B의 Pod(`10.244.2.7`)로 보낼 때 물리 스위치·라우터는 `10.244.0.0/16`을 모르고 노드 IP만 안다. 해법은 세 가지다.
 
-| 방식 | 원리 | 장점 | 단점 |
-|---|---|---|---|
-| **오버레이**(VXLAN, IPIP, Geneve, WireGuard) | Pod 패킷을 노드 간 패킷에 통째로 넣음 | 물리 네트워크 설정 불필요, 어디서나 동작 | 캡슐화 CPU 비용, **MTU 감소**, 물리 장비가 내부 패킷을 못 봐 진단 어려움 |
-| **네이티브 라우팅**(BGP, 클라우드 라우트 테이블, 동일 L2) | 물리 네트워크에 "이 Pod CIDR은 이 노드로"라는 경로를 알림 | 캡슐화 오버헤드·MTU 손실 없음, 평범한 IP 패킷이라 진단 쉬움 | 물리 네트워크가 경로를 받아들여야 함, 클라우드는 라우트 항목 수 제한(원문: AWS 기본 50) |
-| **네이티브 IP**(AWS VPC CNI, Azure CNI, GKE 별칭 IP) | Pod가 VPC의 실제 IP를 받음 | 오버레이·라우팅 설정 불필요, 보안 그룹·플로우 로그를 Pod에 적용 | **IP 고갈**, 노드당 Pod 수가 인스턴스 타입에 묶임 |
+- **오버레이**(VXLAN, IPIP, Geneve, WireGuard): Pod 패킷을 노드 간 패킷에 통째로 넣는다. 어디서나 동작하지만 CPU 비용, **MTU 감소**, 진단 난이도가 대가다.
+- **네이티브 라우팅**(BGP, 클라우드 라우트 테이블, 동일 L2): 물리 네트워크에 "이 Pod CIDR은 이 노드로" 경로를 알린다. 오버헤드가 없고 진단이 쉬우나 물리 네트워크가 경로를 받아야 하고 클라우드는 라우트 항목 수 제한이 있다.
+- **네이티브 IP**(AWS VPC CNI, Azure CNI, GKE 별칭 IP): Pod가 VPC 실제 IP를 받는다. 보안 그룹·플로우 로그를 적용할 수 있지만 **IP 고갈**과 노드당 Pod 수 제약이 있다.
 
-선택 가이드: 물리 네트워크를 제어할 수 있으면 네이티브 라우팅(BGP), 아니면 클라우드는 클라우드 CNI/라우트(IP 여유가 없으면 오버레이), 온프레미스는 오버레이(VXLAN)가 가장 범용적이다.
+물리 네트워크를 제어할 수 있으면 네이티브 라우팅(BGP), 클라우드는 클라우드 CNI/라우트, 온프레미스는 범용적인 오버레이(VXLAN)가 출발점이다.
+
+> 🔬 **심화:** [네트워크 심화서 15장. CNI 플러그인과 패킷 경로 — 1.1 근본 문제 ~ 1.5 어느 방식을 고를까](../../Infra%20network%20component/3부-쿠버네티스-네트워크/15-CNI-플러그인과-패킷-경로.md)
 
 ### 4.2 VXLAN 오버레이와 BGP 경로
 
 **한 줄 요약:** 오버레이는 FDB를 보고 UDP로 감싸 보내고, BGP는 커널 라우팅 테이블에 `proto bird` 경로를 심는다.
 
-```
-VXLAN: Pod(10.244.1.5) → ping → Pod(10.244.2.7, 노드 B)
-① Pod netns에서 패킷 생성 → ② veth로 노드 A 루트 netns
-③ 라우팅: 10.244.2.0/24 → dev vxlan.calico(또는 flannel.1)
-④ VXLAN 인터페이스가 FDB로 노드 B의 실제 IP를 찾아 외부 UDP 헤더(포트 4789 또는 8472)를 씌워 전송
-⑤ 노드 B가 역캡슐화 → ⑥ 로컬 라우팅 → veth → Pod netns
-```
+VXLAN 경로는 Pod netns → veth → 노드 A 루트 netns 라우팅(`10.244.2.0/24 → dev vxlan.calico` 또는 `flannel.1`) → FDB로 노드 B IP를 찾아 외부 UDP 헤더(포트 4789 또는 8472) 캡슐화 → 노드 B 역캡슐화 → veth → Pod netns다. kind의 kindnet은 캡슐화 없이 다른 노드 Pod CIDR로 가는 정적 경로를 넣는 네이티브 라우팅의 축소판이며, `vxlan.*` 인터페이스가 없으면 직접 라우팅 중이다. 양쪽 노드에서 동시에 `tcpdump -i any -nn "host <PodIP>"`를 뜨면 캡슐화 유무가 드러난다.
 
 ```bash
 ip -d link show | grep -A2 vxlan
@@ -227,7 +184,7 @@ bridge fdb show dev vxlan.calico        # 또는 flannel.1
 ip route | grep 10.244                  # BGP: 10.244.2.0/24 via 192.168.1.11 dev eth0 proto bird
 ```
 
-kind의 기본 CNI(kindnet)는 캡슐화 없이 각 노드에 다른 노드 Pod CIDR로 가는 정적 경로를 추가하므로 사실상 네이티브 라우팅의 축소판이다. `vxlan.*` 인터페이스가 없으면 캡슐화 없이 직접 라우팅 중이다. 양쪽 노드에서 `tcpdump -i any -nn "host <PodIP>"`를 동시에 뜨면 캡슐화 유무가 드러난다(오버레이면 `eth0`에서 UDP 4789/8472로 감싸진 패킷이 보인다).
+> 🔬 **심화:** [네트워크 심화서 15장. CNI 플러그인과 패킷 경로 — 2.1 오버레이(VXLAN)가 패킷을 옮기는 경로 · 2.2 BGP · 2.3 kindnet · 2.4 tcpdump로 캡슐화 유무 확인](../../Infra%20network%20component/3부-쿠버네티스-네트워크/15-CNI-플러그인과-패킷-경로.md)
 
 ### 4.3 MTU — 가장 악명 높은 문제
 
@@ -241,7 +198,9 @@ kind의 기본 CNI(kindnet)는 캡슐화 없이 각 노드에 다른 노드 Pod 
 | AWS(점보 프레임) + VXLAN | 9001 | 50 | 8951 |
 | GCP + VXLAN | 1460 | 50 | 1410 |
 
-Pod MTU가 1500인데 VXLAN이면 1500바이트 패킷이 캡슐화돼 1550이 되어 물리 MTU를 넘고 단편화·드롭된다. 증상은 "ping은 되고 작은 요청도 되는데 큰 응답/TLS 핸드셰이크가 실패하고 간헐적으로 느림"이다. 진단은 단편화 금지 ping(`ping -c1 -M do -s <size-28> <PodIP>`)으로 크기를 줄여 가며 처음 성공하는 크기를 찾는다. VPC 피어링·VPN을 거치면 MTU가 더 줄 수 있어 일부 대상만 안 되면 MTU를 의심한다. 설정은 Calico는 `veth_mtu`, Cilium은 `MTU` 값이다.
+Pod MTU가 1500인 채 VXLAN이면 캡슐화 후 1550이 되어 물리 MTU를 넘고 단편화·드롭된다. 증상은 "ping과 작은 요청은 되는데 큰 응답/TLS 핸드셰이크가 실패하고 간헐적으로 느림"이다. 진단은 `ping -c1 -M do -s <size-28> <PodIP>`로 크기를 줄여 가며 처음 성공하는 값을 찾는 것이고, VPC 피어링·VPN을 거치면 MTU가 더 줄 수 있다. 설정은 Calico `veth_mtu`, Cilium `MTU`다.
+
+> 🔬 **심화:** [네트워크 심화서 15장. CNI 플러그인과 패킷 경로 — 3.1 오버헤드와 Pod MTU · 3.2 증상은 교묘하다 · 3.3 진단과 설정](../../Infra%20network%20component/3부-쿠버네티스-네트워크/15-CNI-플러그인과-패킷-경로.md)
 
 ---
 
@@ -262,13 +221,17 @@ Pod MTU가 1500인데 VXLAN이면 1500바이트 패킷이 캡슐화돼 1550이 �
 
 Calico는 `CrossSubnet` 모드(같은 서브넷은 직접, 다르면 캡슐화)가 성능과 범용성의 절충으로 실용적이다. Cilium은 `hubble observe --verdict DROPPED`로 어떤 정책이 패킷을 떨궜는지 볼 수 있다. Flannel은 NetworkPolicy가 없어 프로덕션에 부적합하다는 것이 원문 평가다. NetworkPolicy는 [28장](28-CoreDNS-Ingress-NetworkPolicy.md)에서 이어진다.
 
+> 📎 **관련 참고:** [네트워크 심화서 15장. CNI 플러그인과 패킷 경로 — 4.1 비교표 ~ 4.4 선택 기준](../../Infra%20network%20component/3부-쿠버네티스-네트워크/15-CNI-플러그인과-패킷-경로.md) · [네트워크 심화서 22장. eBPF 데이터플레인과 Cilium](../../Infra%20network%20component/3부-쿠버네티스-네트워크/22-eBPF-데이터플레인과-Cilium.md)
+
 ### 5.2 대규모 환경의 벽
 
 **한 줄 요약:** IP 고갈, iptables 규칙 폭증, conntrack 고갈이 세 가지 벽이다.
 
 - **IP 고갈**: 클러스터 CIDR 설계(코어 3.3), AWS VPC CNI는 서브넷 크기와 prefix delegation.
-- **iptables 규칙 폭증**: 서비스 1,000개 × 엔드포인트 10개면 규칙이 약 22,000개, 5,000개면 10만 개를 넘는다. 갱신 지연·kube-proxy CPU 상승. 대책은 nftables 등 다른 모드·Cilium 대체·서비스 수 감축이다([27장](27-Service와-kube-proxy.md)).
-- **conntrack 고갈**: `conntrack -C`가 `nf_conntrack_max`의 80%를 넘으면 새 연결이 거부되기 시작한다(`dmesg`의 `nf_conntrack: table full`). `sysctl`로 max와 타임아웃을 조정한다. Cilium의 eBPF 데이터플레인은 자체 연결 추적을 쓴다.
+- **iptables 규칙 폭증**: 서비스 1,000개 × 엔드포인트 10개면 규칙이 약 22,000개, 5,000개면 10만 개를 넘어 갱신 지연·kube-proxy CPU가 오른다. 대책은 nftables 등 다른 모드·Cilium 대체·서비스 수 감축이다([27장](27-Service와-kube-proxy.md)).
+- **conntrack 고갈**: `conntrack -C`가 `nf_conntrack_max`의 80%를 넘으면 새 연결이 거부되기 시작한다(`dmesg`의 `nf_conntrack: table full`). Cilium eBPF는 자체 연결 추적을 쓴다.
+
+> 🔬 **심화:** [네트워크 심화서 17장. kube-proxy 데이터플레인 — 2.6 conntrack 테이블 한계 · 3.2 iptables vs IPVS 비교 · 3.3 IPVS는 공식 폐기 경로, nftables 모드, eBPF](../../Infra%20network%20component/3부-쿠버네티스-네트워크/17-kube-proxy-데이터플레인.md)
 
 ### 5.3 계층별 진단
 
@@ -284,16 +247,11 @@ Pod A → Pod B 통신 실패
  ⑥ NetworkPolicy가 있는가? → 정책 확인, Hubble/Calico 로그
 ```
 
-Pod IP로 직접 접근(`curl <PodIP>`)이 성공하면 CNI는 정상이고 Service나 DNS 문제다. 노드에서 Pod 네임스페이스는 `crictl inspect`로 PID를 얻어 `nsenter -t $PID -n ip addr`로 들여다본다. 양쪽 노드에서 동시에 캡처하면 패킷이 사라지는 지점을 특정할 수 있다.
+Pod IP로 직접 접근(`curl <PodIP>`)이 성공하면 CNI는 정상이고 Service나 DNS 문제다. 노드에서 Pod 네임스페이스는 `crictl inspect`로 PID를 얻어 `nsenter -t $PID -n ip addr`로 들여다본다. 같은 노드만 되면 오버레이/라우팅·MTU, ping은 되는데 큰 전송이 안 되면 MTU, 간헐 타임아웃이면 conntrack 고갈, `ContainerCreating` 정체면 containerd 로그와 `/etc/cni/net.d`, Pod에 IP가 없으면 IPAM 고갈·CNI 설정, 노드 재부팅 후 안 되면 iptables 규칙 유실·CNI 상태를 본다.
 
-| 증상 | 유력 원인 | 확인 |
-|---|---|---|
-| 같은 노드는 되고 다른 노드는 안 됨 | 오버레이/라우팅, MTU | `ip route`, tcpdump |
-| ping은 되는데 큰 전송이 안 됨 | **MTU** | `ping -M do -s` |
-| 간헐적 타임아웃 | conntrack 고갈, MTU | `conntrack -C`, `dmesg` |
-| Pod가 `ContainerCreating`에서 멈춤 | CNI 플러그인 실패 | containerd 로그, `/etc/cni/net.d` |
-| Pod에 IP가 없음 | IPAM 고갈, CNI 설정 | `describe pod` 이벤트 |
-| 노드 재부팅 후 안 됨 | iptables 규칙 유실, CNI 상태 | kube-proxy/CNI Pod 재시작 |
+> **[보충]** 이 순서는 이 책의 설명 순서입니다. 심화서 23장은 DNS를 맨 먼저 배제하는 5단계 순서를 씁니다. 같은 Pod의 localhost 포트 충돌 점검은 23장에 없는 이 책의 보충입니다.
+
+> 🔬 **심화:** [네트워크 심화서 23장. 네트워크 장애 진단](../../Infra%20network%20component/4부-진단/23-네트워크-장애-진단.md)
 
 ---
 

@@ -14,6 +14,8 @@ nav_order: 27
 > - 외부 LB로 들어온 요청의 클라이언트 IP가 서버 로그에 노드 IP로 찍혀 접속자 식별·차단이 안 된다.
 > - 서비스가 수천 개가 되자 Service 변경 반영이 느려지고 kube-proxy CPU가 올라간다.
 
+> 🔬 이 장의 네트워크 내용을 더 깊게 보려면 [네트워크 심화서 3부](../../Infra%20network%20component/3부-쿠버네티스-네트워크/index.md)를 보세요.
+
 ## 코어 — 이것만은 100%
 
 > **한 문장:** Service의 ClusterIP는 어느 인터페이스에도 존재하지 않는 가상 좌표이고, EndpointSlice의 Ready Pod 목록을 kube-proxy가 노드 커널의 DNAT 규칙(iptables/IPVS/nftables)으로 번역하며, 패킷 처리는 conntrack을 따라 커널이 하고 kube-proxy는 데이터 경로에 없다.
@@ -68,28 +70,20 @@ spec:
     - { name: http, port: 80, targetPort: 8080 }
 ```
 
-`10.96.x.y` 같은 ClusterIP로 `ping`을 보내면 응답이 없다. 라우팅 테이블 어디에도 그 주소로 가는 물리 경로가 없기 때문이다. ClusterIP는 "이 값으로 패킷을 보내면 그 순간 노드의 데이터플레인이 알아서 실제 백엔드로 바꿔 준다"는 약속이다. 이 경로의 DNS 조회와 연결 흐름은 다음과 같다.
+`10.96.x.y` 같은 ClusterIP로 `ping`을 보내면 응답이 없다. 라우팅 테이블 어디에도 그 주소로 가는 물리 경로가 없고, "이 값으로 패킷을 보내면 그 순간 노드의 데이터플레인이 실제 백엔드로 바꿔 준다"는 약속이기 때문이다. 흐름은 호출 Pod → CoreDNS 조회(ClusterIP 응답) → ClusterIP:80 TCP 연결 → 노드 데이터 경로 → 선택된 Pod IP:8080이다. DNS는 이름을 해석할 뿐 매 패킷을 중계하지 않는다([28장](28-CoreDNS-Ingress-NetworkPolicy.md)). `targetPort`는 컨테이너가 실제로 듣는 포트(또는 Pod의 이름 붙인 포트)와 맞아야 한다.
 
-```
-호출 Pod → CoreDNS에 orders.study.svc.cluster.local 조회 → ClusterIP 응답
-호출 Pod → ClusterIP:80으로 TCP 연결 → 노드 데이터 경로(Service/EndpointSlice에 맞춘 규칙) → 선택된 Pod IP:8080
-```
-
-DNS는 이름을 주소로 해석할 뿐 매 HTTP 패킷을 중계하지 않는다([28장](28-CoreDNS-Ingress-NetworkPolicy.md)). `targetPort`는 컨테이너가 실제로 듣는 포트와 맞아야 한다. 이름 기반 targetPort를 쓰면 Pod의 이름 붙인 포트와 연결된다.
+> 🔬 **심화:** [네트워크 심화서 16장. Service와 EndpointSlice — 1.1 호출 한 번의 순서 — 이름, 주소, 규칙, Pod · 1.2 ClusterIP — "약속"과 필드](../../Infra%20network%20component/3부-쿠버네티스-네트워크/16-Service와-EndpointSlice.md)
 
 ### 1.2 NodePort, LoadBalancer, ExternalName, Headless
 
 **한 줄 요약:** NodePort는 ClusterIP로 가는 진입점을 하나 더 추가하고, LoadBalancer는 그 위에 클라우드 LB를 얹는다.
 
-| 타입 | 동작 |
-|---|---|
-| ClusterIP | 클러스터 내부 가상 주소 |
-| NodePort (⊃ ClusterIP) | **모든 노드**(Pod가 있든 없든)의 지정 포트(기본 30000&#126;32767)가 열려 `노드IP:30080`으로 들어온 트래픽도 같은 엔드포인트 목록으로 간다 |
-| LoadBalancer (⊃ NodePort ⊃ ClusterIP) | cloud-controller-manager의 `service` 컨트롤러가 클라우드 API로 LB를 만들고 각 노드의 NodePort를 백엔드로 등록. `EXTERNAL-IP`가 `<pending>`이면 컨트롤러가 없거나 권한 부족(베어메탈·kind는 MetalLB 같은 대체 필요) |
-| ExternalName | 셀렉터·엔드포인트·ClusterIP 없음. CoreDNS의 CNAME 하나뿐이며 트래픽은 클러스터 데이터플레인을 거치지 않고 클라이언트가 직접 연결 |
-| Headless (`clusterIP: None`) | EndpointSlice는 만들어지지만 ClusterIP와 kube-proxy 규칙이 없음. DNS가 **모든 Pod IP 목록**을 반환 |
+- **NodePort**(⊃ ClusterIP): **모든 노드**의 지정 포트(기본 30000&#126;32767)가 열려 `노드IP:30080` 트래픽도 같은 엔드포인트 목록으로 간다.
+- **LoadBalancer**(⊃ NodePort ⊃ ClusterIP): cloud-controller-manager의 `service` 컨트롤러가 클라우드 LB를 만들고 각 노드의 NodePort를 백엔드로 등록한다. `EXTERNAL-IP`가 `<pending>`이면 컨트롤러가 없거나 권한 부족이다(베어메탈·kind는 MetalLB 등 필요).
+- **ExternalName**: 셀렉터·엔드포인트·ClusterIP 없이 CoreDNS의 CNAME 하나뿐이며 Pod로 프록시하지 않는다.
+- **Headless**(`clusterIP: None`): 별도 `type`이 아니다. EndpointSlice는 만들어지지만 ClusterIP와 kube-proxy 규칙이 없고 DNS가 **모든 Pod IP 목록**을 반환한다. StatefulSet의 개별 Pod DNS(`db-0.db-headless.default.svc.cluster.local`)를 주는 메커니즘이며([24장](24-오브젝트-모델과-워크로드.md)), HTTP/2로 연결을 오래 유지하는 gRPC는 일반 Service에서 최초 Pod로 고정되므로 Headless 목록으로 클라이언트가 직접 분산한다.
 
-Headless는 별도의 `type` 값이 아니라 `clusterIP: None`이다. StatefulSet의 개별 Pod DNS(`db-0.db-headless.default.svc.cluster.local`)를 주는 메커니즘 그 자체이고([24장](24-오브젝트-모델과-워크로드.md)), gRPC처럼 HTTP/2로 연결을 오래 유지하는 프로토콜은 일반 Service에서는 최초 연결된 Pod로 고정되므로 Headless로 목록을 받아 클라이언트 라이브러리가 직접 분산하는 방식이 쓰인다. LB 종류는 사용하는 controller와 환경에 따라 달라지고, ExternalName은 Pod로 프록시하는 기능이 아니다.
+> 🔬 **심화:** [네트워크 심화서 16장. Service와 EndpointSlice — 1.3 NodePort와 LoadBalancer · 1.4 ExternalName · 1.5 분류 주의 — 헤드리스는 별도 type이 아니다 · 3.2 헤드리스 서비스](../../Infra%20network%20component/3부-쿠버네티스-네트워크/16-Service와-EndpointSlice.md)
 
 ---
 
@@ -99,49 +93,22 @@ Headless는 별도의 `type` 값이 아니라 `clusterIP: None`이다. StatefulS
 
 **한 줄 요약:** 단일 `Endpoints`는 Pod 하나가 바뀌어도 전체가 재전송되므로, 약 100개 단위로 샤딩했다.
 
-레거시 `Endpoints`는 Service당 하나라서, 백엔드 Pod 10,000개짜리 Service에서 Pod 하나의 IP만 바뀌어도 10,000개 항목 오브젝트 전체가 다시 쓰이고 그 Service를 watch하는 모든 노드의 kube-proxy로 재전송된다. API 서버 직렬화 크기, etcd 쓰기, watch cache fan-out 부하가 모두 Pod 수에 비례해 폭증했다.
+레거시 `Endpoints`는 Service당 하나라서, 백엔드 Pod 10,000개짜리 Service에서 Pod 하나만 바뀌어도 전체 오브젝트가 다시 쓰이고 watch하는 모든 노드의 kube-proxy로 재전송됐다. **EndpointSlice**(v1.21+ 기본)는 기본 100개 단위(`--max-endpoints-per-slice`, 상한 1000)로 쪼개 바뀐 슬라이스 하나만 갱신한다. `endpointslice` 컨트롤러도 Informer/워크큐 패턴이다([22장](22-컨트롤러-매니저.md)). `kubernetes.io/service-name` 라벨이 Service와의 유일한 연결고리다. 핵심 필드는 다음과 같다.
 
-**EndpointSlice**(v1.21+ 기본)는 기본 100개 단위(`--max-endpoints-per-slice`, 상한 1000)로 쪼갠다. Pod 하나가 바뀌면 그 Pod가 속한 슬라이스 하나만 다시 쓰이므로 부하가 슬라이스 크기에 비례한다. `endpointslice` 컨트롤러(kube-controller-manager 내장)도 Informer/워크큐 패턴을 따른다([22장](22-컨트롤러-매니저.md)).
+- `conditions.ready`: 트래픽을 받을지 결정(readiness 프로브 결과와 직결). `serving`: 종료 중에도 드레이닝을 위해 `true`일 수 있음. `terminating`: 종료 절차 진행 중.
+- `hints.forZones`: 같은 가용 영역 우선의 토폴로지 인식 라우팅(`service.kubernetes.io/topology-mode: Auto`). `nodeName`: `Local` 정책이 참조.
 
-```yaml
-apiVersion: discovery.k8s.io/v1
-kind: EndpointSlice
-metadata:
-  name: payments-abc12
-  labels: { kubernetes.io/service-name: payments }   # ★ Service와의 유일한 연결고리
-addressType: IPv4
-ports: [{ name: http, port: 8080, protocol: TCP }]
-endpoints:
-  - addresses: ["10.244.1.3"]
-    conditions: { ready: true, serving: true, terminating: false }
-    nodeName: k8s-guide-worker
-    zone: ap-northeast-2a
-    hints: { forZones: [{ name: ap-northeast-2a }] }
-```
+Pod가 교체되면 대상 목록과 전달 규칙이 따라 바뀌어 새 연결은 새 Pod로 가지만, 기존 TCP 연결이 이식되지는 않으므로 클라이언트 재연결·재시도가 필요할 수 있다.
 
-| 필드 | 의미 |
-|---|---|
-| `conditions.ready` | **트래픽을 받을지 결정.** readiness 프로브 결과와 직결 |
-| `conditions.serving` | `ready`와 별개의 "지금 서비스 가능한가". 종료 중에도 드레이닝을 위해 `true`일 수 있음 |
-| `conditions.terminating` | 종료 절차(`preStop`, graceful shutdown) 진행 중 |
-| `hints.forZones` | 같은 가용 영역 클라이언트가 우선 선택하도록 하는 토폴로지 인식 라우팅 힌트(`service.kubernetes.io/topology-mode: Auto`) |
-| `nodeName` | `Local` 트래픽 정책이 참조 |
-
-Pod A가 없어지고 Pod B가 생기면 B의 IP가 달라도 **대상 목록이 갱신되고 전달 규칙이 따라 바뀌어** 새 연결은 B로 간다. 기존 TCP 연결이 새 프로세스로 이식되지는 않으므로 클라이언트의 재연결·재시도가 필요할 수 있다.
+> 🔬 **심화:** [네트워크 심화서 16장. Service와 EndpointSlice — 2.1 Service는 의도, EndpointSlice는 구체 정보 · 2.2 필드 구조 · 2.3 왜 Endpoints가 EndpointSlice로 바뀌었나](../../Infra%20network%20component/3부-쿠버네티스-네트워크/16-Service와-EndpointSlice.md)
 
 ### 2.2 종료 중인 엔드포인트의 드레이닝
 
 **한 줄 요약:** 삭제가 시작되면 `ready=false`, `terminating=true`로 바뀌어 새 연결은 막고 기존 연결은 끊지 않는다.
 
-```
-① 삭제 요청 → deletionTimestamp 기록, preStop 시작, EndpointSlice의 ready=false, terminating=true로 갱신
-② 데이터플레인이 반영: ready=false → 새 연결의 후보에서 제외,
-   terminating을 인식하는 구현은 이미 맺힌 연결을 강제로 끊지 않고 자연스러운 종료를 기다림
-③ preStop 완료 또는 terminationGracePeriodSeconds 만료
-④ SIGTERM/SIGKILL → Pod 삭제 → EndpointSlice에서 엔드포인트 완전 제거
-```
+순서는 ① 삭제 요청(`deletionTimestamp`, `preStop` 시작, EndpointSlice `ready=false`·`terminating=true`) → ② 데이터플레인이 새 연결 후보에서 제외하고 기존 연결은 자연 종료를 기다림 → ③ `preStop` 완료 또는 `terminationGracePeriodSeconds` 만료 → ④ SIGTERM/SIGKILL, Pod 삭제, 엔드포인트 완전 제거다. [25장](25-Pod-생명주기와-리소스.md)의 종료 시퀀스와 대응하며, 전파가 즉시 일어나지 않으므로 앱의 SIGTERM 처리와 `preStop`이 여전히 필요하다.
 
-이 전이가 [25장](25-Pod-생명주기와-리소스.md)의 종료 시퀀스와 정확히 대응한다. 다만 전파는 즉시 일어나지 않으므로 앱의 SIGTERM 처리와 `preStop`이 여전히 필요하다.
+> 🔬 **심화:** [네트워크 심화서 16장. Service와 EndpointSlice — 4.3 종료 중인 엔드포인트 — 커넥션 드레이닝](../../Infra%20network%20component/3부-쿠버네티스-네트워크/16-Service와-EndpointSlice.md)
 
 ---
 
@@ -159,67 +126,53 @@ Pod A가 없어지고 Pod B가 생기면 B의 IP가 달라도 **대상 목록이
 
 kube-proxy는 노드마다 하나 도는 DaemonSet이다([24장](24-오브젝트-모델과-워크로드.md)). **프로세스가 죽어도 이미 프로그래밍된 규칙은 커널에 남아 기존 연결은 끊기지 않지만**, 이후 Service/EndpointSlice 변경은 반영되지 않는다. CNI가 노드 간에 패킷을 옮기는 방법을 정한다면([26장](26-쿠버네티스-네트워크-모델과-CNI.md)), kube-proxy는 도착한 패킷의 목적지가 무엇으로 바뀔지를 정한다. 이 일은 중앙 로드밸런서 없이 각 노드에서 로컬로 결정된다.
 
+> 📎 **관련 참고:** [네트워크 심화서 17장. kube-proxy 데이터플레인 — 1.1 watch → 규칙 갱신 → 커널 처리](../../Infra%20network%20component/3부-쿠버네티스-네트워크/17-kube-proxy-데이터플레인.md)
+
 ### 3.2 체인 계층과 확률 분배
 
 **한 줄 요약:** 진입점 `KUBE-SERVICES`에서 Service 체인으로, 거기서 확률로 엔드포인트 체인을 골라 DNAT한다.
 
-```
-PREROUTING(외부 유입) ─┐
-                       ├─→ KUBE-SERVICES ─→ KUBE-SVC-<Service 해시> ─→ KUBE-SEP-<EP1/2/3> ─→ DNAT → Pod IP:Port
-OUTPUT(로컬 발신) ─────┘          └→ KUBE-NODEPORTS (포트만으로 매칭, 같은 KUBE-SVC로)
-```
+체인은 `KUBE-SERVICES → KUBE-SVC-<Service 해시> → KUBE-SEP-<엔드포인트> → DNAT → Pod IP:Port`이고 진입점은 PREROUTING(외부 유입)과 OUTPUT(로컬 발신), NodePort는 `KUBE-NODEPORTS`가 같은 `KUBE-SVC`로 보낸다. 규칙은 위에서부터 독립 평가되므로 엔드포인트 N개일 때 i번째 확률은 `1/(N-i+1)`(마지막은 무조건)이고, N=3이면 1/3 → 남은 2/3의 1/2 → 나머지 1/3으로 균등하다.
 
 ```bash
 iptables -t nat -S KUBE-SERVICES | grep payments
-# -A KUBE-SERVICES -d 10.96.142.88/32 -p tcp ... --dport 80 -j KUBE-SVC-P2QNAX57L3TRA3TJ
-iptables -t nat -S KUBE-SVC-P2QNAX57L3TRA3TJ
-# ... --probability 0.33333333349 -j KUBE-SEP-AAAA
-# ... --probability 0.50000000000 -j KUBE-SEP-BBBB
-# ...                              -j KUBE-SEP-CCCC   (마지막은 무조건)
+iptables -t nat -S KUBE-SVC-P2QNAX57L3TRA3TJ   # --probability 0.33333333349 / 0.50000000000 / (무조건)
 ```
 
-`statistic --mode random`은 각 규칙을 위에서부터 독립적으로 평가하며, 앞 규칙에서 안 걸려 내려온 패킷만 다음 확률에 들어간다.
+**연결 단위 분배다.** 매 패킷이 아니라 conntrack이 최초 SYN에서 정한 목적지를 연결 종료까지 유지하므로, 연결이 충분히 많을 때만 균등에 수렴하고 소수의 오래 유지되는 연결(gRPC 스트리밍 등)은 쏠린다(Headless + 클라이언트 사이드 LB가 필요한 이유). 레플리카를 3에서 6으로 늘리면 첫 규칙 확률이 `0.333`에서 `1/6`으로 바뀌지만 기존 연결은 옮겨지지 않는다.
 
-```
-엔드포인트 N개일 때 i번째 규칙의 확률 p_i = 1 / (N - i + 1)   (마지막은 무조건)
-N=3: 1/3 → 남은 2/3 중 1/2(=전체의 1/3) → 나머지 1/3  ⇒ 균등
-N=5: 1/5, 1/4, 1/3, 1/2, 무조건
-```
-
-**연결 단위 분배다.** 매 패킷마다 굴리는 것이 아니라 conntrack이 최초 SYN에서 정한 목적지를 연결이 끝날 때까지 유지한다. 연결 수가 충분히 많을 때만 통계적으로 균등에 수렴하고, 소수의 오래 유지되는 연결(gRPC 스트리밍 등)은 Headless + 클라이언트 사이드 LB가 필요한 이유가 된다. 레플리카를 3에서 6으로 늘리면 첫 규칙 확률이 `0.333`에서 `1/6`으로 바뀐다.
+> 🔬 **심화:** [네트워크 심화서 17장. kube-proxy 데이터플레인 — 2.1 체인 계층 구조 · 2.2 실제 규칙 읽기와 확률의 수학](../../Infra%20network%20component/3부-쿠버네티스-네트워크/17-kube-proxy-데이터플레인.md)
 
 ### 3.3 엔드포인트 체인: DNAT, 헤어핀, SNAT
 
 **한 줄 요약:** `KUBE-SEP-*`에서 목적지를 바꾸고, 헤어핀과 노드를 건너는 트래픽은 `0x4000` 마크로 SNAT한다.
 
+`KUBE-SEP-*`의 첫 규칙은 Pod가 자기가 속한 Service를 호출해 자기에게 돌아오는 **헤어핀**을 `KUBE-MARK-MASQ`로 표시하고, 둘째 규칙이 `DNAT --to-destination <PodIP>:<port>`를 한다. `KUBE-POSTROUTING`은 `0x4000` 마크가 있는 패킷만 `MASQUERADE --random-fully`한다. 이 마크 메커니즘이 `externalTrafficPolicy: Cluster`에서 클라이언트 IP가 사라지는 정확한 지점이다. kube-proxy는 `--cluster-cidr`로 내부 대역을 알아야 "내부 트래픽은 SNAT 불필요"를 판단하므로 이 값이 틀리면 불필요한 마스커레이드가 생긴다.
+
 ```bash
-iptables -t nat -S KUBE-SEP-AAAA
-# -A KUBE-SEP-AAAA -s 10.244.1.3/32 -j KUBE-MARK-MASQ                         ← 헤어핀
-# -A KUBE-SEP-AAAA -p tcp -m tcp -j DNAT --to-destination 10.244.1.3:8080     ← 실제 DNAT
-iptables -t nat -S KUBE-POSTROUTING
-# -A KUBE-POSTROUTING -m mark ! --mark 0x4000/0x4000 -j RETURN
-# -A KUBE-POSTROUTING -j MARK --xor-mark 0x4000
-# -A KUBE-POSTROUTING -j MASQUERADE --random-fully
+iptables -t nat -S KUBE-SEP-AAAA     # KUBE-MARK-MASQ(헤어핀) → DNAT --to-destination 10.244.1.3:8080
+iptables -t nat -S KUBE-POSTROUTING  # mark 0x4000 → MASQUERADE --random-fully
 ```
 
-첫 규칙은 **헤어핀(hairpin) 대응**이다. Pod가 자신이 속한 Service를 호출해 자기에게 돌아올 때 SNAT가 없으면 응답의 출발지가 Pod 자신이 되어 커널이 "내 요청의 응답"으로 인식하지 못한다. `KUBE-MARK-MASQ`로 표시를 남기고 `KUBE-POSTROUTING`이 `0x4000` 마크가 있는 패킷만 마스커레이드한다. 이 마크 메커니즘이 `externalTrafficPolicy: Cluster`에서 클라이언트 IP가 사라지는 정확한 지점이다. kube-proxy는 `--cluster-cidr`로 내부 대역을 알아야 "내부 트래픽은 SNAT 불필요"를 판단하므로, 이 값이 틀리면 불필요한 마스커레이드가 생긴다.
+> 🔬 **심화:** [네트워크 심화서 17장. kube-proxy 데이터플레인 — 2.3 엔드포인트 체인 — DNAT와 헤어핀, SNAT 마크 · 2.4 NodePort 체인과 --cluster-cidr](../../Infra%20network%20component/3부-쿠버네티스-네트워크/17-kube-proxy-데이터플레인.md)
 
 ### 3.4 conntrack — 응답은 어떻게 돌아오는가
 
 **한 줄 요약:** DNAT는 연결의 첫 패킷에만 적용되고, 나머지와 응답 방향은 conntrack 테이블이 역변환한다.
 
-```
-요청: 10.244.1.9:34567 → 10.96.142.88:80  [DNAT] → 10.244.1.3:8080   (conntrack에 변환 기록)
-응답: 10.244.1.3:8080 → 10.244.1.9:34567  [역변환] → 10.96.142.88:80 로 보임
-```
+요청 `10.244.1.9:34567 → 10.96.142.88:80`이 DNAT로 `10.244.1.3:8080`이 되며 변환이 conntrack에 기록되고, 응답은 역변환되어 ClusterIP에서 온 것으로 보인다(`conntrack -L | grep <ClusterIP>`의 두 번째 `src=/dst=` 쌍). 테이블이 가득 차면(`net.netfilter.nf_conntrack_max`) 새 연결이 거부되며, 짧은 연결이 많은 게임 서버에서 흔한 장애 원인이다(DNS의 UDP conntrack 경쟁 조건도 같은 메커니즘). 커널 쪽 netfilter·conntrack은 [6장](../1부-리눅스-OS-구성-요소/06-네트워크-스택.md)과 [16장](../2부-컨테이너-커널-기능과-Docker/16-Docker-네트워크.md)의 iptables NAT와 같은 기반이다.
 
-`conntrack -L | grep <ClusterIP>`에서 두 번째 `src=/dst=` 쌍이 역변환 정보다. 테이블이 가득 차면(`net.netfilter.nf_conntrack_max`) 새 연결이 거부된다. 게임 서버처럼 짧은 연결이 많은 워크로드에서 흔한 장애 원인이다(DNS의 UDP conntrack 경쟁 조건도 같은 메커니즘이다). 커널 쪽 netfilter·conntrack은 [6장](../1부-리눅스-OS-구성-요소/06-네트워크-스택.md)과 [16장](../2부-컨테이너-커널-기능과-Docker/16-Docker-네트워크.md)의 iptables NAT와 같은 기반이다.
+> **[보충]** 원천은 "대량의 짧은 연결을 만드는 워크로드에서 흔히 겪는 장애 원인"이라고만 쓴다. 이를 짧은 연결이 많은 게임 서버로 좁혀 말한 것은 이 책의 보충이다.
+
+> 🔬 **심화:** [네트워크 심화서 17장. kube-proxy 데이터플레인 — 1.2 DNAT와 conntrack — 되돌아오는 패킷 · 2.6 conntrack 테이블 한계](../../Infra%20network%20component/3부-쿠버네티스-네트워크/17-kube-proxy-데이터플레인.md) · [네트워크 심화서 1부 05장. netfilter·iptables·NAT·conntrack](../../Infra%20network%20component/1부-리눅스-네트워크-기초/05-netfilter-iptables-NAT-conntrack.md)
 
 ### 3.5 갱신 방식: 원자적 전체 교체
 
 **한 줄 요약:** 변경마다 규칙 하나씩 고치지 않고 전체를 다시 만들어 `iptables-restore --noflush`로 한 번에 적재한다.
 
-메모리에서 `KUBE-*` 체인 전체를 텍스트로 재구성해 커널에 한 번에 넣는다(`--noflush`로 `KUBE-` 아닌 규칙은 건드리지 않음). 일부만 반영된 어중간한 상태가 노출되지 않지만, Service 수가 많을수록 만들고 적재하는 시간이 늘어난다. `kubectl get --raw /metrics | grep kubeproxy_sync_proxy_rules_duration`으로 본다.
+메모리에서 `KUBE-*` 체인 전체를 텍스트로 재구성해 커널에 한 번에 넣는다(`--noflush`로 `KUBE-`가 아닌 규칙은 유지). 중간 상태가 노출되지 않지만 Service 수에 비례해 시간이 늘어나며, `kubectl get --raw /metrics | grep kubeproxy_sync_proxy_rules_duration`으로 본다.
+
+> 🔬 **심화:** [네트워크 심화서 17장. kube-proxy 데이터플레인 — 2.5 규칙 갱신은 증분이 아니라 원자적 전체 교체](../../Infra%20network%20component/3부-쿠버네티스-네트워크/17-kube-proxy-데이터플레인.md)
 
 ---
 
@@ -229,17 +182,17 @@ iptables -t nat -S KUBE-POSTROUTING
 
 **한 줄 요약:** iptables는 체인을 순차 평가하는 O(n)이고 IPVS는 해시 테이블 조회 O(1)이다.
 
-Service가 수천 개면 `KUBE-SERVICES` 체인이 길어져 신규 연결의 첫 패킷마다 수천 규칙을 비교할 수 있고, 하나라도 바뀌면 전체를 재구성하므로 갱신 지연도 커진다. [26장](26-쿠버네티스-네트워크-모델과-CNI.md)의 출처(kubernetes-textbook 23장)에 있는 추정으로 Service 1,000개 × 엔드포인트 10개면 규칙이 약 22,000개, 5,000개면 10만 개를 넘는다.
-
-IPVS 모드: `kube-ipvs0` 더미 인터페이스에 모든 ClusterIP를 바인딩하고, 커널 IPVS에 Service마다 가상 서버(Virtual Server), 엔드포인트마다 실제 서버(Real Server)를 등록한다(`ipvsadm -Ln`). 스케줄러는 `rr`(기본), `lc`, `dh`, `sh`, `wrr` 등을 고를 수 있다. SNAT·NodePort·헤어핀은 여전히 iptables에 의존하되 Service별 체인 대신 `ipset`(`KUBE-CLUSTER-IP` 등)으로 규칙 수를 극적으로 줄인다. ARP 충돌을 막기 위해 `kube-ipvs0`는 `NOARP`이고 `arp_ignore=1`, `arp_announce=2`로 맞춘다(MetalLB L2와 얽힐 때 확인).
+Service가 수천 개면 `KUBE-SERVICES` 체인이 길어지고 갱신 지연도 커진다(Service 1,000개 × 엔드포인트 10개면 규칙 약 22,000개, 5,000개면 10만 개 초과). IPVS 모드는 `kube-ipvs0` 더미 인터페이스에 모든 ClusterIP를 바인딩하고 Service마다 가상 서버, 엔드포인트마다 실제 서버를 등록한다(`ipvsadm -Ln`, 스케줄러 `rr` 기본·`lc`·`dh`·`sh`·`wrr`). SNAT·NodePort·헤어핀은 여전히 iptables에 의존하되 `ipset`으로 규칙 수를 줄이고, `kube-ipvs0`는 `NOARP`에 `arp_ignore=1`, `arp_announce=2`로 맞춘다(MetalLB L2와 얽힐 때 확인).
 
 > **⚠️ IPVS 모드는 공식 폐기 경로(KEP-5495)에 들어섰다.** 원문 일정은 v1.35 경고 로그 → v1.37 `KubeProxyIPVS` 기능 게이트 → v1.40 기본 비활성 → v1.43 코드 제거다. 신규 도입은 피하고 기존 IPVS 클러스터는 nftables(또는 iptables) 전환을 계획한다.
+
+> 🔬 **심화:** [네트워크 심화서 17장. kube-proxy 데이터플레인 — 3.1 IPVS 모드 — kube-ipvs0와 해시 테이블 · 3.2 iptables vs IPVS 비교 · 3.3 IPVS는 공식 폐기 경로](../../Infra%20network%20component/3부-쿠버네티스-네트워크/17-kube-proxy-데이터플레인.md)
 
 ### 4.2 nftables 모드
 
 **한 줄 요약:** 집합(set)과 사상(map)으로 원소 단위 증분 갱신을 하며, GA지만 기본값은 여전히 iptables인 경우가 많다.
 
-iptables 모드가 `KUBE-SERVICES(순회) → Service 체인(순회) → 확률 규칙(순회) → DNAT`라면, nftables는 "목적지 IP:포트 → verdict map 조회(해시, 단일 룩업) → 엔드포인트 집합에서 선택 → DNAT" 구조다. 맵은 원소를 개별 추가/삭제할 수 있어 엔드포인트 하나가 바뀌면 원소 하나만 갱신한다. 같은 netfilter 프레임워크를 더 효율적인 규칙 언어로 쓰는 것이다. `mode: nftables`를 명시해야 하고 `nft list table ip kube-proxy`로 본다. Service가 수백&#126;수천 개이거나 갱신 지연이 체감될 때 전환을 검토하고, 그 이하 규모에서는 iptables로도 차이가 크지 않다. 현재 모드는 `kubectl get configmap kube-proxy -n kube-system -o yaml | grep "mode:"`로 직접 확인한다.
+nftables는 "목적지 IP:포트 → verdict map 조회(해시, 단일 룩업) → 엔드포인트 집합에서 선택 → DNAT" 구조로, 엔드포인트 하나가 바뀌면 원소 하나만 갱신한다. `mode: nftables`를 명시하고 `nft list table ip kube-proxy`로 보며, Service가 수백&#126;수천 개이거나 갱신 지연이 체감될 때 전환을 검토한다. 현재 모드는 `kubectl get configmap kube-proxy -n kube-system -o yaml | grep "mode:"`로 확인한다.
 
 | | iptables | IPVS | nftables |
 |---|---|---|---|
@@ -248,11 +201,15 @@ iptables 모드가 `KUBE-SERVICES(순회) → Service 체인(순회) → 확률 
 | 갱신 | 전체 재구성 후 원자 교체 | 개별 항목 증분 | 원소 단위 증분 |
 | 상태 | 오래된 기본값 | 폐기 경로 | GA |
 
+> 🔬 **심화:** [네트워크 심화서 17장. kube-proxy 데이터플레인 — 3.3 IPVS는 공식 폐기 경로, nftables 모드, eBPF · 3.4 현재 모드 확인](../../Infra%20network%20component/3부-쿠버네티스-네트워크/17-kube-proxy-데이터플레인.md)
+
 ### 4.3 eBPF(kube-proxy 없는 클러스터)
 
 **한 줄 요약:** Cilium은 netfilter DNAT를 우회해 소켓/tc/XDP 계층에서 목적지를 결정한다.
 
-세 모드는 모두 netfilter 위에서 DNAT한다. Cilium은 eBPF를 소켓 계층(`connect()`/`sendmsg()` 시점)이나 tc/XDP에 붙여 패킷이 netfilter를 거치기 전에 백엔드 주소를 정한다. 데이터플레인 계열 자체가 다르다. 자체 연결 추적을 쓰므로 conntrack 고갈에서도 자유롭다(kubernetes-textbook 23장의 평가).
+앞의 세 모드는 모두 netfilter 위에서 DNAT하지만, Cilium은 eBPF를 소켓 계층(`connect()`/`sendmsg()` 시점)이나 tc/XDP에 붙여 netfilter를 거치기 전에 백엔드를 정한다. 자체 연결 추적을 쓰므로 conntrack 고갈에서도 자유롭다.
+
+> 🔬 **심화:** [네트워크 심화서 17장. kube-proxy 데이터플레인 — 3.3 IPVS는 공식 폐기 경로, nftables 모드, eBPF](../../Infra%20network%20component/3부-쿠버네티스-네트워크/17-kube-proxy-데이터플레인.md)
 
 ---
 
@@ -262,36 +219,33 @@ iptables 모드가 `KUBE-SERVICES(순회) → Service 체인(순회) → 확률 
 
 **한 줄 요약:** `Local` 정책은 홉을 줄이고 클라이언트 IP를 보존하지만 Pod 분포가 불균등하면 부하도 불균등하다.
 
-- `sessionAffinity: ClientIP`: 소스 IP를 키로 일정 시간(기본 10800초, 최대 86400) 같은 백엔드로 고정. 데이터플레인에서 구현된다. NAT 뒤 다수 사용자가 같은 IP로 보이면 한 Pod로 몰린다. 쿠키 기반 고정은 Ingress나 서비스 메시의 몫이다.
-- `internalTrafficPolicy` / `externalTrafficPolicy`: 후보를 클러스터 전체(`Cluster`, 기본) 또는 요청이 도달한 그 노드의 로컬(`Local`)로 한정.
+- `sessionAffinity: ClientIP`: 소스 IP 키로 일정 시간(기본 10800초, 최대 86400) 같은 백엔드에 고정한다. NAT 뒤 다수 사용자가 한 Pod로 몰릴 수 있고, 쿠키 기반 고정은 Ingress나 서비스 메시의 몫이다.
+- `internalTrafficPolicy` / `externalTrafficPolicy`: 후보를 전체(`Cluster`, 기본)로 하거나 요청이 도달한 노드의 로컬(`Local`)로 한정한다.
 
 | 값 | 장점 | 단점 |
 |---|---|---|
 | `Cluster`(기본) | 균등 분산 | 다른 노드 Pod로 갈 때 홉 증가, 외부 트래픽은 **SNAT로 원본 클라이언트 IP 소실** |
 | `Local` | 홉 없음, **클라이언트 IP 보존** | 그 노드에 Pod가 없으면 응답 없음. Pod 분포가 불균등하면 부하 불균등 |
 
-`Cluster`에서 노드 A로 들어온 요청을 노드 B의 Pod로 보낼 때 원본 IP를 유지하면 B가 클라이언트로 직접 응답해 비대칭 경로가 생기므로 소스를 노드 A IP로 SNAT한다. 클라우드 LB의 헬스체크가 Pod 없는 노드를 제외해 주면 `Local`이 우수하고, 클라우드 LoadBalancer 구현체는 이 조합을 기본 권장 패턴으로 삼는다. `internalTrafficPolicy: Local`은 노드마다 로컬 캐시 DaemonSet(NodeLocal DNSCache 등)이 있을 때 쓴다.
+`Cluster`에서 노드 A로 온 요청을 노드 B의 Pod로 보낼 때 원본 IP를 유지하면 B가 클라이언트로 직접 응답해 비대칭 경로가 생기므로 소스를 노드 A IP로 SNAT한다. 클라우드 LB 헬스체크가 Pod 없는 노드를 제외해 주면 `Local`이 우수하다. `internalTrafficPolicy: Local`은 노드마다 로컬 캐시 DaemonSet(NodeLocal DNSCache 등)이 있을 때 쓴다.
+
+> 🔬 **심화:** [네트워크 심화서 16장. Service와 EndpointSlice — 4.1 세션 어피니티 · 4.2 internalTrafficPolicy / externalTrafficPolicy](../../Infra%20network%20component/3부-쿠버네티스-네트워크/16-Service와-EndpointSlice.md)
 
 ### 5.2 서비스 디스커버리: 환경변수 vs DNS
 
 **한 줄 요약:** 환경변수는 Pod 시작 시점의 스냅샷이라 순서 의존이므로 DNS를 쓴다.
 
-kubelet은 Pod 시작 시점에 이미 존재하는 Service에 대해 `PAYMENTS_SERVICE_HOST=10.96.142.88` 같은 환경변수를 주입한다. Service가 Pod보다 **나중에** 만들어지면 그 변수는 아예 없고, 재시작 전에는 알 방법이 없다. 배포 순서에 따라 재현되기도 안 되기도 하는 까다로운 버그다. DNS(`payments.default.svc.cluster.local`, 같은 네임스페이스면 `payments`)는 요청 시점에 해석되므로 순서 의존이 없다.
+kubelet은 Pod 시작 시점에 이미 존재하는 Service에 대해서만 `PAYMENTS_SERVICE_HOST=10.96.142.88` 같은 환경변수를 주입한다. Service가 나중에 만들어지면 변수가 아예 없어 배포 순서에 따라 재현되기도 안 되기도 하는 버그가 된다. DNS(`payments.default.svc.cluster.local`, 같은 네임스페이스면 `payments`)는 요청 시점에 해석되므로 순서 의존이 없다.
+
+> 🔬 **심화:** [네트워크 심화서 16장. Service와 EndpointSlice — 3.1 환경변수 vs DNS](../../Infra%20network%20component/3부-쿠버네티스-네트워크/16-Service와-EndpointSlice.md)
 
 ### 5.3 데이터플레인 진단
 
 **한 줄 요약:** EndpointSlice까지 정상인데 안 되면 커널 규칙 계층을 의심한다.
 
-| 증상 | 유력 원인 | 확인 |
-|---|---|---|
-| EndpointSlice는 정상인데 ClusterIP 접근 안 됨 | kube-proxy 죽음/동기화 실패 | `kubectl logs -n kube-system <kube-proxy>`, `kubeproxy_sync_proxy_rules_duration_seconds` |
-| 일부 노드에서만 안 됨 | 그 노드 kube-proxy 비정상 | 노드별 `iptables -t nat -S \| grep <서비스>` 비교 |
-| 변경 반영이 느림 | iptables 모드 O(n) 동기화 | 규칙 수 `iptables -t nat -S \| wc -l` |
-| 특정 클라이언트가 항상 같은 백엔드 | `sessionAffinity: ClientIP`, IPVS `sh`/`dh` | Service 필드, 스케줄러 |
-| 연결은 열리는데 응답 없음 | conntrack, 노드 간 라우팅 | `conntrack -L`, 양쪽 노드 tcpdump |
-| Pod는 Ready인데 EndpointSlice 대상이 0개 | selector·라벨·네임스페이스 불일치 | Service selector와 Pod labels 비교(CPU를 늘리는 것은 무관) |
+핵심 판별 기준은 "오브젝트 모델(Service·EndpointSlice)까지는 정상인가"다. 정상인데 트래픽이 안 가면 커널 규칙 단계이고, 그렇지 않으면 selector, Ready 상태, `targetPort`를 먼저 본다. 일부 노드에서만 안 되면 그 노드의 kube-proxy 로그와 `iptables -t nat -S | grep <서비스>`를 정상 노드와 비교하고, 반영이 느리면 규칙 수(`iptables -t nat -S | wc -l`)와 `kubeproxy_sync_proxy_rules_duration_seconds`를 본다. 특정 클라이언트가 한 백엔드에 고정되면 `sessionAffinity: ClientIP`(또는 IPVS `sh`/`dh`), 연결은 열리는데 응답이 없으면 `conntrack -L`과 양쪽 노드 tcpdump, Pod는 Ready인데 대상이 0개면 selector·라벨·네임스페이스 불일치다.
 
-핵심 판별 기준은 "오브젝트 모델(Service·EndpointSlice)까지는 정상인가"다. 정상인데 트래픽이 안 가면 커널 규칙 단계이고, 그렇지 않으면 selector, Ready 상태, `targetPort`를 먼저 본다.
+> 🔬 **심화:** [네트워크 심화서 17장. kube-proxy 데이터플레인 — 진단 — 오브젝트 모델이 정상이면 데이터플레인을 본다](../../Infra%20network%20component/3부-쿠버네티스-네트워크/17-kube-proxy-데이터플레인.md) · [네트워크 심화서 16장 — 진단 순서](../../Infra%20network%20component/3부-쿠버네티스-네트워크/16-Service와-EndpointSlice.md)
 
 ---
 

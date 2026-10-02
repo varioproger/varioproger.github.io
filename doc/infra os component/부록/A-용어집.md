@@ -141,6 +141,8 @@ nav_order: 1
 | securityContext / PSA | securityContext / Pod Security Admission | Pod의 uid·capability·seccomp·읽기 전용 FS 설정 / 네임스페이스 라벨로 프로파일을 강제하는 어드미션 | [30장](../3부-쿠버네티스-구성-요소/30-설정-보안.md) |
 | 블래스트 레이디어스 | blast radius | 침해되었을 때 피해가 번지는 범위. 층마다 좁히는 보안 사고방식 | [30장](../3부-쿠버네티스-구성-요소/30-설정-보안.md) |
 
+> 📎 **관련 참고:** CNI·DNS·Ingress·Gateway API·NetworkPolicy 등 네트워크 용어는 [네트워크 심화서 부록 A. 용어집](../../Infra%20network%20component/부록/A-용어집.md)에도 정리되어 있습니다.
+
 ## 실무 적용
 
 ### 체크리스트

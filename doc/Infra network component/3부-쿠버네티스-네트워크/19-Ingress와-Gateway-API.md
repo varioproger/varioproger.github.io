@@ -18,14 +18,14 @@ nav_order: 19
 
 > **한 문장:** Ingress(또는 Gateway API 리소스)는 라우팅 규칙을 선언한 **데이터**일 뿐이고, 컨트롤러가 그것을 watch해 자기 리버스 프록시 설정으로 바꿔 L7(호스트·경로) 요청을 Pod IP로 직접 프록시하며, Gateway API는 이 선언을 GatewayClass/Gateway/Route 세 역할로 쪼개 애노테이션 난립을 표준 필드로 대체한다.
 
-1. **Ingress = 데이터, IngressController = 프로그램** — 컨트롤러가 Ingress/Service/EndpointSlice/Secret을 watch해 `nginx.conf` 같은 프록시 설정을 만들고 리로드(또는 동적 API)한다. 대부분 ClusterIP를 거치지 않고 Pod IP로 직접 프록시한다.
+1. **컨트롤러는 조정 루프이고, 데이터 경로에 있는지는 구현마다 다르다** — ingress-nginx류는 Ingress/Service/EndpointSlice/Secret을 watch해 `nginx.conf` 같은 프록시 설정을 만들고 리로드(엔드포인트 변경은 동적 갱신)하며, 자기 프록시가 요청을 받아 ClusterIP를 거치지 않고 Pod IP로 직접 프록시한다. AWS Load Balancer Controller 같은 클라우드 네이티브 컨트롤러는 ALB 설정만 유지하고 요청 경로에는 없다.
 2. **라우팅 규칙과 TLS 종료** — 호스트/경로 기반 라우팅, `pathType`, TLS는 컨트롤러에서 종료(컨트롤러 → Pod는 평문), cert-manager로 발급·갱신 자동화.
 3. **Gateway API: 역할을 세 리소스로 분리** — GatewayClass(인프라 제공자) → Gateway(클러스터 운영자, 리스너·TLS·`allowedRoutes`) → HTTPRoute 등(앱 팀). 헤더 매칭·가중치 분할·URL 재작성이 애노테이션이 아닌 타입 검증되는 표준 필드가 된다.
 
 **이 장의 학습 목표**
 
-- Ingress와 IngressController의 관계, 컨트롤러의 조정 루프와 두 가지 리로드 방식을 설명한다.
-- 호스트/경로 기반 라우팅, `pathType`(`Exact`/`Prefix`/`ImplementationSpecific`)의 차이, TLS 종료 지점을 설명한다.
+- 컨트롤러의 조정 루프와 두 가지 리로드 방식, 그리고 클라우드 네이티브 컨트롤러가 데이터 경로에 없다는 점(ALB의 IP/instance target, readiness와 ALB health check)을 설명한다.
+- `rewrite-target`과 상대 경로 함정, TLS 종료 지점·Secret watch·cert-manager 챌린지 선택을 설명한다.
 - Ingress의 구조적 한계(애노테이션 난립, 역할 분리 불가)를 세 가지로 말하고, Gateway API가 이를 어떻게 푸는지 설명한다.
 - 같은 라우팅 규칙을 Ingress와 Gateway API로 각각 쓰고 모델 차이를 비교한다.
 - `ADDRESS`·404/502/503/504 같은 증상에서 원인을 좁힌다.
@@ -55,18 +55,9 @@ nav_order: 19
 
 ### 1.1 왜 필요한가
 
-**한 줄 요약:** LoadBalancer Service는 서비스마다 LB 하나이고 L4에서만 동작해 HTTP 수준 판단을 못 한다. Ingress는 하나의 진입점에서 호스트·경로로 나눈다.
+**한 줄 요약:** LB 서비스마다 하나 + L4라는 이유는 입문 책과 같고, 이 장은 그 위 L7 진입점의 내부를 본다.
 
-LoadBalancer Service는 하나당 클라우드 LB 하나다. 서비스가 30개면 LB도, IP도, 인증서도 30개다. Service는 **L4(TCP/UDP)**에서 동작하므로 "`/api`는 백엔드로, `/`는 프론트엔드로" 같은 판단을 할 수 없다. Ingress는 둘을 함께 해결한다.
-
-```
-                     ┌─────────────────────────────┐
-                     │      Ingress Controller     │
-인터넷 → LB (1개) →  │  shop.example.com/     → web│
-                     │  shop.example.com/api  → api│
-                     │  admin.example.com/    → adm│
-                     └─────────────────────────────┘
-```
+> **입문 책에서 배운 것** — LoadBalancer Service는 서비스 수만큼 LB·IP·인증서가 늘고 L4(TCP/UDP)에서 동작해 `/api`·`/` 같은 HTTP 수준 판단을 못 하므로, Ingress가 진입점 하나에서 호스트·경로로 나눈다([입문 책 23장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/23-Ingress와-외부-트래픽.md)).
 
 ```
 남북(north-south) 트래픽                동서(east-west) 트래픽
@@ -79,23 +70,11 @@ Ingress / Gateway API  ← 이 장          서비스 메시 ← 20장
 
 ### 1.2 Ingress와 IngressController는 다른 것이다
 
-**한 줄 요약:** Ingress = API 리소스(설정 데이터), IngressController = 실행되는 프로그램(리버스 프록시). 컨트롤러가 없으면 `ADDRESS`가 비어 있다.
+**한 줄 요약:** Ingress는 조정 루프의 desired state일 뿐이고, 컨트롤러가 그것을 자기 프록시 설정으로 바꾼다. 컨트롤러가 없으면 `ADDRESS`가 비어 있다.
 
-| | Ingress | IngressController |
-|---|---|---|
-| 정체 | **API 리소스**(설정 데이터) | **실행되는 프로그램**(리버스 프록시) |
-| 하는 일 | "이렇게 라우팅해 달라"고 선언 | 그 선언을 읽어 실제로 라우팅 |
-| 배포 형태 | YAML 매니페스트 | Deployment/DaemonSet + Service |
+> **입문 책에서 배운 것** — Ingress = API 리소스(설정 데이터), IngressController = 실행되는 프로그램(리버스 프록시)이고, `kubectl get ingress`의 `ADDRESS`가 비어 있으면 컨트롤러가 처리하지 않은 것이다([입문 책 23장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/23-Ingress와-외부-트래픽.md)).
 
-```bash
-kubectl get ingress
-# NAME   CLASS   HOSTS              ADDRESS   PORTS   AGE
-# web    nginx   shop.example.com             80      5m
-#                                   ^^^^^^^
-#                                   ADDRESS가 비어 있다 = 컨트롤러가 처리하지 않았다
-```
-
-Ingress 리소스만 만들면 etcd에 저장된 데이터일 뿐이다. 이것이 초보자가 가장 자주 겪는 혼란이다.
+원천은 `ADDRESS`가 비어 있다는 것을 "아직 어떤 컨트롤러도 이 오브젝트를 관찰하지 않았다"는 신호로 읽고, 컨트롤러가 없으면 이 상태에서 영원히 멈춘다고 한다. 일반 컨트롤러와 다른 점은 조정의 결과물이 API 서버에 쓰는 status가 아니라 **컨트롤러 자신이 들고 있는 리버스 프록시 프로세스의 설정**이라는 것이다. 다음 절이 그 변환 과정이다.
 
 ### 1.3 컨트롤러의 조정 루프와 두 가지 리로드 방식
 
@@ -115,20 +94,13 @@ Ingress 리소스만 만들면 etcd에 저장된 데이터일 뿐이다. 이것�
 
 ingress-nginx는 엔드포인트 변경 같은 대부분의 변경에서 **Lua 기반 동적 백엔드 갱신**을 쓰고, 새 호스트·TLS 추가 같은 구조적 변경에만 전체 리로드를 한다. 즉 Pod 스케일 인/아웃으로 EndpointSlice만 바뀌면 전체 리로드 없이 백엔드 목록만 교체하고, 호스트·경로 규칙이 바뀔 때만 무거운 재생성이 일어난다.
 
-> **[보충]** 이것은 C++ 서버에서 "접속 가능한 서버 목록(런타임 데이터)이 바뀌는 것"과 "라우팅 규칙(설정)이 바뀌는 것"을 구분하는 것과 같다. 전자는 가볍고 후자는 무겁다는 원천의 설명을 이해용으로 풀어 쓴 것이다.
-
 ### 1.4 Pod IP로 직접 프록시한다
 
 **한 줄 요약:** 대부분의 컨트롤러는 ClusterIP·kube-proxy를 건너뛰고 Pod IP로 직접 프록시한다. 홉이 줄고 L7 로드밸런싱을 직접 구현한다.
 
-```
-일반적인 경로:  클라이언트 → Ingress 컨트롤러 → Pod IP (직접)
-피하는 경로:    클라이언트 → Ingress 컨트롤러 → ClusterIP → (kube-proxy/eBPF) → Pod IP
-```
+클라이언트 → Ingress 컨트롤러 → Pod IP로 가고, ClusterIP → (kube-proxy/eBPF) → Pod IP 경로는 피한다. kube-proxy의 iptables/IPVS 홉을 하나 건너뛰므로 지연이 줄고, 세션 고정이나 가중치 라우팅 같은 L7 로드밸런싱을 컨트롤러가 자기 알고리즘으로 구현할 수 있다. 대신 컨트롤러는 EndpointSlice를 스스로 watch해 백엔드 목록을 항상 최신으로 유지할 책임을 진다.
 
-kube-proxy의 iptables/IPVS 홉을 하나 건너뛰므로 지연이 줄고, 세션 고정이나 가중치 라우팅 같은 L7 로드밸런싱을 컨트롤러가 자기 알고리즘으로 구현할 수 있다. 대신 컨트롤러는 EndpointSlice를 스스로 watch해 백엔드 목록을 항상 최신으로 유지할 책임을 진다.
-
-### 1.5 IngressClass와 주요 컨트롤러
+### 1.5 IngressClass와 컨트롤러 선택
 
 **한 줄 요약:** 여러 컨트롤러를 함께 쓸 때 `ingressClassName`으로 어느 것이 처리할지 지정한다. 옛 `kubernetes.io/ingress.class` 애노테이션은 폐기됐다.
 
@@ -150,28 +122,37 @@ spec:
   ingressClassName: nginx        # ★ 어느 컨트롤러가 처리할지
 ```
 
-| 컨트롤러 | 특징 |
-|---|---|
-| **ingress-nginx** | 쿠버네티스 프로젝트가 관리. 가장 널리 쓰임. 애노테이션으로 세밀한 제어 |
-| **NGINX Ingress Controller** (F5) | NGINX Inc.의 상용/오픈소스 버전. 위와 **다른 프로젝트** |
-| **Traefik** | 자동 서비스 디스커버리, Let's Encrypt 내장, 대시보드 |
-| **HAProxy Ingress** | 고성능, 세밀한 로드밸런싱 |
-| **Envoy 기반** (Contour, Emissary) | Gateway API 지원, gRPC 친화적 |
-| **클라우드 네이티브** (AWS LBC, GKE Ingress, AGIC) | 클라우드 LB를 직접 제어 |
-
 > **⚠️ 이름이 비슷한 두 프로젝트** — `ingress-nginx`(커뮤니티)의 애노테이션 접두사는 `nginx.ingress.kubernetes.io/...`, `nginx-ingress`(F5/NGINX Inc.)는 `nginx.org/...`다. 문서를 찾을 때 어느 쪽인지 확인한다.
 
-클라우드 네이티브 컨트롤러는 LB 운영 부담이 낮고 클라우드 기능과 통합되지만 종속적이고, ingress-nginx는 어디서나 동일하게 동작하지만 컨트롤러 Pod를 직접 운영한다. 멀티 클라우드·온프레미스가 섞이면 ingress-nginx로 통일하는 편이 단순하다(원천).
+### 1.6 클라우드 네이티브 컨트롤러는 데이터 경로에 없다 — ALB 사례
+
+**한 줄 요약:** ingress-nginx류는 컨트롤러 안의 프록시가 요청을 받지만, AWS Load Balancer Controller 같은 컨트롤러는 **LB 설정만 유지**하고 요청은 ALB가 받는다.
+
+> **입문 책에서 배운 것** — 클라우드 네이티브 컨트롤러(AWS Load Balancer Controller·GKE Ingress·AGIC)는 LB를 클라우드가 운영해 관리 부담이 낮지만 클라우드에 종속되고, ingress-nginx는 직접 운영하지만 어디서나 동일하다([입문 책 23장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/23-Ingress와-외부-트래픽.md)).
+
+```
+Ingress·Service·대상 상태 → AWS Load Balancer Controller ─(AWS API)→ ALB의 listener·rule·target group
+사용자 ─HTTPS→ ALB ─(IP target)→ Pod IP:8080
+```
+
+- **위치.** 컨트롤러는 AWS API로 listener·rule·target group·target 등록을 조정할 뿐, 사용자 요청마다 중간에서 처리하지 않는다. 1.3절의 "컨트롤러 안의 프록시"와 다르다.
+- **target 방식.** IP target은 Pod IP를 target으로 삼고, Service가 설정상의 backend 연결에 쓰여도 패킷이 반드시 ClusterIP나 NodePort를 경유하지 않는다. Instance target은 ALB → 노드의 NodePort → Pod 경로다.
+- **건강 신호 둘.** Pod readiness는 쿠버네티스의 신호, ALB health check는 ALB가 대상에 직접 요청해 판단하는 별도 신호다. Ready여도 검사 path·port·성공 코드나 Security Group이 맞지 않으면 target은 unhealthy일 수 있다. Pod readiness gate는 target health가 준비되기 전에 rollout이 너무 빨리 진행되는 문제를 줄이지만 자동 적용을 가정하지 말고 Namespace label 등 요구를 확인한다.
+- **TLS와 실패 지점.** ALB에서 HTTPS를 종료하고 내부를 HTTP로 보낼 수도, backend까지 TLS를 쓸 수도 있다(앱 health endpoint가 인증을 요구하면 LB 검사와 충돌). 컨트롤러의 IAM 권한 부족·subnet 검색 실패·class 불일치면 ALB 생성 단계가 막힌다. "ALB는 있고 503" 순서는 listener와 target group → target 등록·health → Pod 준비 상태와 포트다.
+
+클라우드별 특징(원천 11.5b)은 AWS가 Target Group에 Pod IP 직접 등록과 ACM, GCP가 글로벌 애니캐스트 IP·Cloud CDN과 Google-managed certificates, Azure가 WAF와 Key Vault 연동이다. ingress-nginx와 견줄 때 입문 책 표에 없는 축은 설정 유연성(네이티브는 클라우드 LB의 제약 안, ingress-nginx는 NGINX 설정 전체), 반영 지연(프로비저닝에 수 분 vs 즉시), 비용(LB 요금 vs 노드 리소스 + LB 1개)이다.
 
 ---
 
 ## 코어 2. 라우팅 규칙과 TLS 종료
 
-### 2.1 호스트 기반·경로 기반 라우팅
+### 2.1 정규식 경로와 rewrite — 라우팅의 경계 조건
 
-**한 줄 요약:** `host`로 나누고 `path`로 나눈다. `rewrite-target`은 상대 경로 문제를 만들 수 있어 서브도메인 분리가 더 안전하다.
+**한 줄 요약:** 호스트·경로 규칙과 `pathType`은 입문 책과 같고, 이 절은 정규식 경로 + `rewrite-target`이 만드는 변환과 그 함정을 본다.
 
-경로 기반(`ingress-path.yaml`, 원천 그대로):
+> **입문 책에서 배운 것** — `host`별 규칙과 `defaultBackend`, `pathType` 세 값(`Exact` / 세그먼트 단위 `Prefix` / `ImplementationSpecific`), `/api`(Prefix)가 `/apifoo`에 안 걸린다는 점, 더 긴 경로 우선, 경로 분리보다 호스트 분리가 안전하다는 권고([입문 책 23장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/23-Ingress와-외부-트래픽.md)). 와일드카드 호스트(`*.dev.localdev.me`)는 한 단계만 매칭된다(원천).
+
+경로 기반(`ingress-path.yaml`, 원천 그대로). `ImplementationSpecific`에서는 nginx가 정규식을 지원하므로 캡처 그룹을 쓸 수 있다.
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -209,34 +190,6 @@ curl -H "Host: shop.localdev.me" http://localhost/api/users
 # I am API
 ```
 
-호스트 기반은 `rules`에 `host`를 여러 개 둔다(`web.localdev.me`, `api.localdev.me`, 와일드카드 `*.dev.localdev.me`는 한 단계만). 어느 규칙에도 매칭되지 않는 요청은 `defaultBackend`가 처리한다.
-
-```yaml
-spec:
-  defaultBackend:
-    service:
-      name: fallback
-      port: { number: 80 }
-```
-
-**`pathType`이 매칭 방식을 결정한다.**
-
-| pathType | 동작 |
-|---|---|
-| `Exact` | 경로가 정확히 일치 |
-| `Prefix` | **경로 세그먼트 단위** 접두사 일치 |
-| `ImplementationSpecific` | 컨트롤러가 알아서(nginx는 정규식 지원) |
-
-```
-path: /api  (Prefix)
-  /api        ✓ 매칭
-  /api/       ✓ 매칭
-  /api/users  ✓ 매칭
-  /apifoo     ✗ 매칭 안 됨! (세그먼트가 다르다)
-```
-
-더 긴 경로가 우선한다(`/api/v2`가 `/api`보다 먼저).
-
 `rewrite-target: /$2`와 `path: /api(/|$)(.*)`의 조합은 요청 `/api/users/1`을 백엔드에 `/users/1`로 전달한다(`$2`는 캡처 그룹 2번).
 
 > **⚠️ rewrite와 상대 경로의 함정** — HTML 안의 상대 경로(`<img src="logo.png">`)는 브라우저가 `/api/logo.png`로 요청한다. 백엔드는 `/logo.png`를 기대하는데 rewrite가 적용되어 다시 `/logo.png`가 되므로 우연히 동작하기도 하고 안 하기도 한다. **경로 기반 분리보다 서브도메인 분리**(`api.example.com`, `www.example.com`)가 안전하다.
@@ -247,29 +200,7 @@ path: /api  (Prefix)
 
 **한 줄 요약:** TLS는 컨트롤러에서 끝나고 컨트롤러 → Pod 구간은 기본 평문이다. 인증서 발급·갱신은 cert-manager가 자동화한다.
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: shop
-spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - shop.example.com
-      secretName: shop-tls          # ★ kubernetes.io/tls 타입 Secret
-  rules:
-    - host: shop.example.com
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend: { service: { name: web, port: { number: 80 } } }
-```
-
-```bash
-kubectl create secret tls shop-tls --cert=tls.crt --key=tls.key
-```
+> **입문 책에서 배운 것** — `tls` 필드에 `kubernetes.io/tls` Secret(`secretName: shop-tls`)을 지정하면 컨트롤러가 TLS를 풀고, 컨트롤러 → Pod 구간은 기본 평문이며, 90일 만료 인증서는 cert-manager로 자동화한다([입문 책 23장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/23-Ingress와-외부-트래픽.md)).
 
 컨트롤러는 조정 루프 안에서 `Secret`도 watch한다. 인증서가 회전되면 Ingress 오브젝트는 안 바뀌었어도 컨트롤러가 Secret 변경을 감지해 TLS 컨텍스트만 다시 로드한다. 컨트롤러 → Pod 구간을 암호화하려면 백엔드 프로토콜 설정(`nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"`)이나 서비스 메시([20장](20-서비스-메시-데이터플레인.md))가 필요하다.
 
@@ -297,16 +228,6 @@ spec:
           dnsZones: ["example.com"]
 ```
 
-```yaml
-metadata:
-  annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-spec:
-  tls:
-    - hosts: [shop.example.com]
-      secretName: shop-tls        # cert-manager가 이 Secret을 만들어 준다
-```
-
 | | HTTP-01 | DNS-01 |
 |---|---|---|
 | 검증 방식 | `/.well-known/acme-challenge/` 경로에 파일 배치 | DNS TXT 레코드 생성 |
@@ -314,7 +235,7 @@ spec:
 | 와일드카드 | 불가 | 가능 |
 | 내부망 서비스 | 불가 | 가능 |
 
-cert-manager는 Ingress를 감시하다가 `Certificate`를 자동 생성하고, ACME 챌린지를 수행하며, 발급 후 Secret에 저장하고, **만료 30일 전 자동 갱신**한다. 상태는 `kubectl get certificate`, `kubectl get certificaterequest,order,challenge`로 추적한다. 설정을 시험할 때는 Let's Encrypt 프로덕션의 주당 5회 중복 발급 제한 때문에 staging(`https://acme-staging-v02.api.letsencrypt.org/directory`)을 쓴다.
+Ingress에 `cert-manager.io/cluster-issuer: letsencrypt-prod` 애노테이션과 `tls.secretName`을 달아 두면, cert-manager는 Ingress를 감시하다가 `Certificate`를 자동 생성하고, ACME 챌린지를 수행하며, 발급 후 Secret에 저장하고, **만료 30일 전 자동 갱신**한다. 상태는 `kubectl get certificate`, `kubectl get certificaterequest,order,challenge`로 추적한다. 설정을 시험할 때는 Let's Encrypt 프로덕션의 주당 5회 중복 발급 제한 때문에 staging(`https://acme-staging-v02.api.letsencrypt.org/directory`)을 쓴다.
 
 ### 2.3 애노테이션 난립이라는 구조적 한계
 
@@ -339,6 +260,15 @@ metadata:
 3. **하나의 오브젝트를 여러 팀이 편집해야 한다.** 인프라 팀의 TLS 설정과 앱 팀의 라우팅 규칙이 같은 오브젝트, 같은 `metadata.annotations` 맵에 뒤섞인다.
 
 세 번째 문제(**역할 분리 불가**)가 Gateway API가 존재하는 근본 이유다.
+
+위 "애노테이션"이 실제로 얼마나 넓은 영역을 덮는지는 ingress-nginx의 원천 목록이 보여 준다. 이 목록 전체가 표준 필드 밖이다.
+
+| 영역 | `nginx.ingress.kubernetes.io/` 애노테이션 |
+|---|---|
+| 리다이렉트·제한 | `ssl-redirect`, `force-ssl-redirect`, `permanent-redirect`, `proxy-body-size`, `proxy-read-timeout`, `proxy-connect-timeout` |
+| 레이트 리밋·세션 | `limit-rps`, `limit-connections`, `affinity: cookie`, `session-cookie-name` |
+| CORS·인증·접근 제어 | `enable-cors`, `auth-type`, `auth-url`/`auth-signin`(OAuth2 Proxy 등), `whitelist-source-range` |
+| 백엔드 프로토콜 | `backend-protocol`: HTTP, HTTPS, GRPC, AJP |
 
 ---
 
@@ -411,6 +341,8 @@ spec:
 
 `allowedRoutes` 덕분에 `Gateway` 소유자는 **어느 네임스페이스가 자신의 리스너를 쓸 수 있는지 명시적으로 통제**한다. Ingress에는 이런 개념이 없다. 같은 `IngressClass`를 쓰는 모든 `Ingress`가 무조건 처리 대상이다.
 
+네임스페이스를 넘는 참조에는 `ReferenceGrant` 같은 명시적 허용 모델이 관여할 수 있다고 원천(qustion-book)은 적는다. Gateway API는 CRD와 지원 컨트롤러가 필요하고, EKS에서 어떤 기능이 지원되는지는 선택한 구현의 버전으로 확인한다.
+
 ### 3.2 애노테이션이 스펙 필드가 됐다
 
 **한 줄 요약:** 헤더 매칭·가중치 분할·경로 재작성이 타입 검증되는 표준 필드라 컨트롤러를 바꿔도 같게 해석된다.
@@ -476,14 +408,7 @@ spec:
 
 **한 줄 요약:** 규칙은 같아도 Gateway API는 리소스가 3개로 늘어나는 대신 소유자가 나뉜다.
 
-원천 실습은 같은 규칙(`/api` → api, `/` → web)을 Ingress 1개와 Gateway API 3개(GatewayClass, Gateway, HTTPRoute) 리소스로 각각 작성해 비교한다. 3.1절의 Gateway/HTTPRoute 예시가 그 구조다.
-
-| 관찰 포인트 | Ingress | Gateway API |
-|---|---|---|
-| `/api` 경로 제거를 위한 재작성 | 애노테이션 + 정규식 캡처 그룹 | `URLRewrite` 필터(선택적으로만 필요) |
-| 리소스 개수 | 1개 | 3개(GatewayClass/Gateway/HTTPRoute), 대신 소유자가 나뉜다 |
-| 컨트롤러 교체 시 | 애노테이션 전부 재작성 | 스펙은 그대로, `gatewayClassName`만 교체 |
-| 리소스 소유자 | 전부 동일(보통 앱 팀) | GatewayClass=인프라, Gateway=클러스터 운영, HTTPRoute=앱 팀 |
+원천 실습은 같은 규칙(`/api` → api, `/` → web)을 Ingress 1개와 Gateway API 3개(GatewayClass, Gateway, HTTPRoute)로 각각 작성해 비교한다. 3.2절의 표가 그 관찰 결과이고, 하나가 더 있다. 컨트롤러를 바꿀 때 Ingress는 애노테이션을 전부 다시 쓰지만 Gateway API는 스펙을 그대로 두고 `gatewayClassName`만 교체한다.
 
 ### 3.4 지원 상태와 도입 시점
 
@@ -496,7 +421,7 @@ spec:
 
 CRD 설치(표준 채널)의 형태는 `kubectl apply --server-side -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.1/standard-install.yaml`이다(internals 원천 기준 버전).
 
-> **[보충]** 버전 번호가 두 원천에서 다르다(textbook `v1.2.0`, internals `v1.6.1`). 이 책은 더 최신인 internals를 따랐다. 실제 설치 시에는 사용 중인 컨트롤러가 지원하는 버전을 확인해야 한다.
+> **[보충]** 버전 번호가 두 원천에서 다르다(textbook `v1.2.0`, internals `v1.6.1`). 더 최신인 internals를 따랐고, 설치 시에는 컨트롤러가 지원하는 버전을 확인한다.
 
 ---
 
@@ -523,12 +448,12 @@ CRD 설치(표준 채널)의 형태는 `kubectl apply --server-side -f https://g
 
    </details>
 
-2. **상황:** 외부에서 접속하니 nginx 에러 페이지가 나온다. 한 번은 503, 다른 서비스는 502, 또 다른 서비스는 404다.
-   **질문:** 각각 어디를 보나?
+2. **상황:** EKS에서 ALB Ingress를 만들었다. ALB는 생겼고 Pod도 모두 Ready인데 외부 요청이 503이다. (ingress-nginx라면 404/502/503/504가 호스트·경로 매칭, 포트·앱 크래시, 엔드포인트, 지연 문제를 가리킨다는 구분은 입문 책과 같다.)
+   **질문:** 어떤 순서로 보나?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   404는 호스트/경로 매칭 실패(`Host` 헤더 확인), 503은 백엔드 엔드포인트가 없음(`kubectl get svc,endpointslice`, [16장](16-Service와-EndpointSlice.md)의 진단), 502는 백엔드가 응답하지 않음(포트 불일치, 앱 크래시), 504는 백엔드가 느림(`proxy-read-timeout` 조정)이다. 컨트롤러 Pod 안에서 `curl -s http://web.default.svc.cluster.local`로 백엔드에 직접 접근해 보고, `cat /etc/nginx/nginx.conf`로 생성된 설정을 확인하는 방법도 있다. → 코어 1, 코어 2
+   ALB 쪽 경로를 순서대로 본다. listener와 target group → target 등록과 health → Pod 준비 상태와 포트다. Pod가 Ready여도 ALB health check의 path·port·성공 코드나 Security Group이 맞지 않으면 target이 unhealthy라 503이 날 수 있다. ALB가 아예 없었다면 컨트롤러와 class → reconcile 로그 → IAM·subnet 조건 → AWS 자원 순으로 간다. ingress-nginx 쪽이라면 컨트롤러 Pod에서 `cat /etc/nginx/nginx.conf`로 생성된 설정을, `curl -s http://web.default.svc.cluster.local`로 백엔드 직접 접근을 확인할 수 있다. → 코어 1 (1.6)
 
    </details>
 
@@ -550,14 +475,15 @@ CRD 설치(표준 채널)의 형태는 `kubectl apply --server-side -f https://g
 ### 1. 백지 복습
 
 ```
-[코어 1] Ingress = ( ? ) / IngressController = ( ? )
-  ADDRESS 비어 있음 = ( ? )가 처리하지 않음
+[코어 1] ADDRESS 비어 있음 = ( ? )가 처리하지 않음
   컨트롤러 watch 대상: Ingress, IngressClass, Service, ( ? ), Secret
   리로드 2갈래: 정적 재생성 + ( ? ) / 동적 ( ? ) 호출
   백엔드로 갈 때: ClusterIP가 아니라 ( ? )로 직접 → 홉 하나 감소
+  ALB 컨트롤러: 요청 경로에 ( ? ) / LB 설정만 유지, target 방식 IP vs ( ? )
+  건강 신호 2: Pod ( ? ) / ALB ( ? ), 둘이 어긋나면 target unhealthy
 
-[코어 2] pathType 3: Exact / ( ? ) (세그먼트 단위) / ImplementationSpecific
-  /api(Prefix)가 /apifoo에 매칭? ( ? )
+[코어 2] rewrite-target: /$( ? ) + path /api(/|$)(.*) → /api/users/1이 백엔드엔 ( ? )
+  경로 기반 분리의 함정: HTML ( ? ) 경로 → ( ? ) 분리가 안전
   TLS는 ( ? )에서 종료, 그 뒤 구간은 기본 ( ? )
   cert-manager 챌린지: HTTP-01(와일드카드 ( ? )) / DNS-01(와일드카드 ( ? ))
   Ingress 한계 3: 이식성 ( ? ) / 타입 ( ? ) / 역할 ( ? )
@@ -594,11 +520,11 @@ CRD 설치(표준 채널)의 형태는 `kubectl apply --server-side -f https://g
 
    </details>
 
-4. `path: /api`(Prefix)가 매칭하는 경로와 매칭하지 않는 경로를 말하라.
+4. `rewrite-target: /$2`와 `path: /api(/|$)(.*)` 조합에서 `/api/users/1`은 백엔드에 어떤 경로로 가며, 왜 경로 기반 분리보다 서브도메인 분리가 안전한가?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   `/api`, `/api/`, `/api/users`는 매칭, `/apifoo`는 세그먼트가 달라 매칭되지 않는다. 더 긴 경로(`/api/v2`)가 우선한다. → 코어 2 (2.1)
+   `$2`(캡처 그룹 2번)가 `/users/1`이므로 백엔드는 `/users/1`을 받는다(`ImplementationSpecific`에서 nginx가 정규식을 지원한다). HTML의 상대 경로(`logo.png`)는 브라우저가 `/api/logo.png`로 요청하고 rewrite가 다시 `/logo.png`로 만들어 우연히 되기도 안 되기도 하므로, `api.example.com`/`www.example.com`처럼 호스트로 나누는 편이 안전하다. → 코어 2 (2.1)
 
    </details>
 
@@ -634,6 +560,14 @@ CRD 설치(표준 채널)의 형태는 `kubectl apply --server-side -f https://g
 
    </details>
 
+9. ALB 컨트롤러는 ingress-nginx와 요청 경로에서 어떤 위치가 다르고, target이 unhealthy인데 Pod는 Ready일 때 무엇을 보는가?
+
+   <details markdown="1"><summary>답 확인</summary>
+
+   ingress-nginx는 컨트롤러 안의 프록시가 요청을 받지만, ALB 컨트롤러는 listener·rule·target group·target 등록만 조정하고 요청은 ALB가 받는다(IP target이면 Pod IP로 직행, instance target이면 ALB → NodePort → Pod). Pod readiness와 ALB health check는 별도 신호이므로 ALB가 검사하는 path·port·성공 코드와 Security Group을 확인한다. → 코어 1 (1.6)
+
+   </details>
+
 ### 3. 기억 고리
 
 - **C++ 유추:** IngressController = nginx 같은 리버스 프록시 프로세스, Ingress = 그 프록시의 설정 파일. ⚠️ 깨지는 곳: 설정 파일을 사람이 편집·리로드하지 않는다. 컨트롤러가 오브젝트를 watch해 **자동으로 생성·리로드**하고, 엔드포인트 변경은 리로드조차 없이 반영한다. 또 컨트롤러는 Pod IP로 직접 프록시하므로 ClusterIP 경로와 다르다.
@@ -657,4 +591,4 @@ CRD 설치(표준 채널)의 형태는 `kubectl apply --server-side -f https://g
 
 ---
 
-*원문 근거: Kubernetes_Internals_Network_Guide/03-네트워크/17-Ingress-Gateway-API-서비스메시.md (17.1 IngressController 내부 동작, 17.2 Gateway API 모델과 Ingress 대비 장점, 실습 Ingress와 Gateway API 나란히 비교); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/11-인그레스와-외부-트래픽-라우팅.md (11.1 Ingress와 IngressController, 11.2 실습, 11.3 TLS 종료와 cert-manager, 11.4 유용한 애노테이션, 11.5 Gateway API, 11.5b 클라우드별 인그레스 통합, 11.7 인그레스 문제 진단)*
+*원문 근거: Kubernetes_Internals_Network_Guide/03-네트워크/17-Ingress-Gateway-API-서비스메시.md (17.1 IngressController 내부 동작, 17.2 Gateway API 모델과 Ingress 대비 장점, 실습 Ingress와 Gateway API 나란히 비교); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/11-인그레스와-외부-트래픽-라우팅.md (11.1 Ingress와 IngressController, 11.2 실습, 11.3 TLS 종료와 cert-manager, 11.4 유용한 애노테이션, 11.5 Gateway API, 11.5b 클라우드별 인그레스 통합, 11.7 인그레스 문제 진단); kubernetes-qustion-book/02_심화/06_네트워크와_서비스_노출.md (5. Ingress는 규칙, ALB는 실제 요청을 받는 자원: IP/instance target, 컨트롤러의 위치, ReferenceGrant); kubernetes-qustion-book/02_심화/16_EKS의_네트워크_스토리지_확장.md (3. ALB: 두 종류의 건강 신호, readiness gate, TLS 종료 위치)*

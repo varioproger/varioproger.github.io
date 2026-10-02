@@ -16,19 +16,19 @@ nav_order: 4
 
 ## 코어 — 이것만은 100%
 
-> **한 문장:** veth pair는 항상 쌍으로 만들어지는 가상 케이블이고(한쪽은 컨테이너 네임스페이스로, 한쪽은 호스트 브리지에), 브리지는 MAC 주소 테이블(FDB)로 같은 대역 안을 L2 스위칭하며, 대역 밖으로는 라우팅 테이블이 다음 홉을 정하고, ARP/NDP가 그 다음 홉의 IP를 MAC으로 풀어 준다.
+> **한 문장:** veth pair는 두 끝이 서로 다른 네임스페이스에 놓일 수 있는 가상 케이블이라 "어느 끝에서 보느냐"가 관찰 지점을 정하고(짝은 `@ifN` 인덱스로 이어진다), 같은 브리지 안은 MAC 주소 테이블(FDB)로 L2 스위칭되며, 대역 밖은 라우팅 테이블이 다음 홉을 정하고(노드마다 Pod 대역 경로 한 줄), ARP/NDP가 그 다음 홉의 IP를 MAC으로 풀어 준다.
 
-1. **veth pair = 가상 랜 케이블** — 항상 쌍으로 생성되어 한쪽에 들어간 패킷이 다른 쪽으로 그대로 나온다. 한쪽 끝을 네임스페이스 안으로 옮기면 그 안에서 `eth0`이 된다. 짝은 `@ifN`의 인덱스 번호로 찾는다.
-2. **브리지 = 가상 스위치** — 같은 브리지 안의 통신은 MAC 주소 테이블(FDB)을 보고 프레임을 전달하는 L2 스위칭이며 라우팅도 NAT도 없다. `bridge link show`로 연결을 본다.
-3. **대역 밖은 라우팅이 정한다** — 컨테이너는 기본 게이트웨이(브리지 IP)로 보내고, 호스트 커널이 IP 포워딩으로 올려 라우팅 테이블(`ip route`)로 다음 홉을 정하며, 외부로 나갈 땐 MASQUERADE가 붙는다. 노드 간 경로도 `10.244.2.0/24 via 192.168.1.11 dev eth0` 같은 한 줄 경로다.
-4. **ARP는 같은 L2 세그먼트 안에서 IP를 MAC으로 푼다** — IPv4는 ARP, IPv6는 NDP가 맡고 `ip neigh`로 이웃 테이블을 본다. 브리지는 이더넷 프레임을 그대로 전달하므로 ARP/NDP를 특별히 취급하지 않는다.
+1. **veth는 두 개의 끝점이고, 어느 끝에서 보느냐가 관점이다** — 한쪽에 들어간 패킷이 다른 쪽으로 그대로 나오므로, 컨테이너 안 `eth0`·호스트 쪽 veth·노드 `eth0`에서 `tcpdump`를 걸면 같은 흐름을 다른 지점에서 본다. 이미지에 도구가 없어도 호스트 쪽 veth에서 캡처할 수 있고, 손으로 `ip link add ... type veth peer name ...` → `ip link set ... netns` 순서로 CNI가 하는 일을 재현한다.
+2. **브리지 = 가상 스위치** — 같은 브리지 안의 통신은 FDB를 보고 프레임을 전달하는 L2 스위칭이며 라우팅도 NAT도 없다. `bridge link show`와 `bridge fdb show br docker0`으로 본다.
+3. **대역 밖은 라우팅이 정한다** — 컨테이너는 기본 게이트웨이(브리지 IP)로 보내고 호스트가 IP 포워딩 + MASQUERADE로 내보낸다. 노드 간 경로는 `10.244.2.0/24 via 192.168.1.11 dev eth0` 같은 노드당 한 줄이며, 캡슐화 인터페이스가 보이면 오버레이이고 클러스터/노드 마스크가 최대 노드 수를 정한다.
+4. **ARP는 같은 L2 세그먼트 안에서 IP를 MAC으로 푼다** — IPv4는 ARP, IPv6는 NDP가 맡고 `ip neigh`로 이웃 테이블을 본다. 여러 노드가 같은 IP를 ARP로 광고하면 충돌이 생긴다(IPVS `kube-ipvs0`, MetalLB L2).
 
 **이 장의 학습 목표**
 
-- veth pair가 만들어지고 네임스페이스로 옮겨져 `eth0`이 되는 과정을 명령 수준으로 설명한다.
-- 호스트의 veth와 컨테이너의 `eth0`을 `@ifN`으로 짝짓고 `bridge link show`로 브리지 연결을 확인한다.
-- L2 스위칭, 라우팅, NAT가 개입하는 통신을 구분한다.
-- `ip route`, `ip neigh`, `ip -d link show` 출력으로 패킷 경로를 재구성한다.
+- 컨테이너 안·호스트 veth·노드 `eth0`·`vxlan` 인터페이스 중 어디에서 캡처해야 무엇이 보이는지 설명한다.
+- veth pair가 만들어지고 네임스페이스로 옮겨져 `eth0`이 되는 과정을 명령 수준으로 재현한다.
+- L2 스위칭, 라우팅, NAT가 개입하는 통신을 구분하고 `ip route`, `ip neigh`, `ip -d link show` 출력으로 패킷 경로를 재구성한다.
+- 클러스터 CIDR과 노드별 서브넷 마스크로 최대 노드 수와 노드당 Pod 수 상한을 계산한다.
 
 ## C++·TCP 서버 경험에서 출발하기
 
@@ -51,43 +51,34 @@ nav_order: 4
 
 ---
 
-## 코어 1. veth pair는 가상 랜 케이블이다
+## 코어 1. veth는 두 개의 끝점이고, 어느 끝에서 보느냐가 관점이다
 
-### 1.1 veth의 성질
+### 1.1 veth의 성질과 짝 찾기
 
-**한 줄 요약:** veth는 항상 쌍으로 생성되는 가상 인터페이스이고, 한쪽 끝으로 들어간 패킷이 다른 끝으로 그대로 나온다.
+**한 줄 요약:** veth는 항상 쌍으로 생성되고 한쪽 끝으로 들어간 패킷이 다른 끝으로 그대로 나오며, 컨테이너 안 `eth0@ifN`의 N이 호스트 쪽 짝의 인덱스다.
 
-Docker는 컨테이너를 브리지 네트워크에 연결할 때 veth pair를 만들어 **한쪽 끝은 컨테이너의 네트워크 네임스페이스로 옮기고**(컨테이너 안에서 `eth0`으로 보임), **다른 끝은 호스트 네임스페이스에 남겨 브리지에 연결**한다.
+> **입문 책에서 배운 것:** Docker는 veth 한쪽을 컨테이너 네임스페이스로 옮겨 `eth0`으로 보이게 하고 다른 쪽을 호스트 브리지에 연결하며, `eth0@ifN`의 N과 같은 인덱스의 호스트 인터페이스가 짝이고 `ip link show type veth`·`bridge link show`로 확인한다([입문 책 11장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/2부-컨테이너와-Docker/11-Docker-네트워크.md)).
 
-```
-[ 호스트 네트워크 네임스페이스 ]                [ 컨테이너 네트워크 네임스페이스 ]
+이 장은 그 위에서 두 가지를 더한다. 이미지에 `ip` 명령이 없으면 [3장](03-네트워크-네임스페이스.md)의 `nsenter --target $PID --net -- ip link show eth0`로 호스트 도구를 쓰고, 과거의 `brctl show docker0`은 `bridge-utils` 패키지 소속이라 최근 배포판에는 기본 설치되지 않는 경우가 많으므로 요즘은 `bridge link show` 또는 `bridge fdb show br docker0`을 쓴다.
 
-   docker0 (브리지)
-       │
-       ├── vethXXXXXXX@if5  ◄──── veth pair ────►  eth0@if6      (컨테이너 1)
-       │
-       └── vethYYYYYYY@if7  ◄──── veth pair ────►  eth0@if8      (컨테이너 2)
-```
+### 1.2 어느 끝에서 캡처할 것인가
 
-### 1.2 짝 찾기: @ifN
-
-**한 줄 요약:** 컨테이너 안 `eth0@ifN`의 N은 반대쪽 끝(호스트 쪽 veth)의 인터페이스 인덱스이므로, 호스트에서 같은 인덱스를 가진 인터페이스가 짝이다.
+**한 줄 요약:** Pod의 네트워크 네임스페이스는 veth 쌍의 한쪽 끝이고 다른 쪽 끝은 호스트 네임스페이스(또는 CNI 브리지)에 있으므로, Pod 안에 도구를 넣거나(`kubectl debug`, `nsenter`) 호스트 쪽 veth에서 캡처할 수 있다.
 
 ```bash
-# 컨테이너 안에서 인터페이스 번호 확인
-docker exec web ip link show eth0
-# 예: 6: eth0@if7: <BROADCAST,MULTICAST,UP,LOWER_UP> ...
+# 방법 ① Pod에 임시 디버그 컨테이너를 붙여 같은 네트워크 네임스페이스에서 캡처
+kubectl debug -it <pod-name> --image=nicolaka/netshoot --target=<container-name> -- tcpdump -i any -n port 80
 
-# 호스트에서 브리지에 연결된 veth 목록 확인
-ip link show type veth
-bridge link show
+# 방법 ② 노드에서 nsenter로 Pod의 네트워크 네임스페이스에 진입
+docker exec k8s-guide-worker crictl inspect <container-id> | grep -i pid
+docker exec k8s-guide-worker nsenter -t <pid> -n tcpdump -i eth0 -n
+
+# 방법 ③ 이미지가 너무 미니멀하면 호스트 쪽 veth에서 캡처 — Pod 내부에 아무것도 설치하지 않는다
+docker exec k8s-guide-worker sh -c 'ethtool -S <pod-내부-eth0-ifindex> 2>/dev/null; ip link | grep veth'
+docker exec k8s-guide-worker tcpdump -i <veth이름> -n
 ```
 
-호스트에서 `ip link show`로 같은 인덱스 번호를 가진 인터페이스를 찾으면 그 컨테이너와 짝을 이루는 veth의 호스트 쪽 끝이다.
-
-> **[보충]** 원문 그림에서 호스트 쪽 `vethXXXXXXX@if5`와 컨테이너 쪽 `eth0@if6`은 서로 상대의 인덱스를 `@if` 뒤에 적는 형식의 예시이며, 숫자 자체(5, 6, 7, 8)는 예시일 뿐이다. 이 숫자를 보고 짝을 찾는 요령은 두 출력의 "내 인덱스"와 "`@if` 뒤 상대 인덱스"를 서로 맞춰 보는 것이다.
-
-컨테이너 이미지에 `ip` 명령이 없으면 [3장](03-네트워크-네임스페이스.md)의 `nsenter --target $PID --net -- ip link show eth0`로 호스트 도구를 써서 확인한다. 과거에는 `brctl show docker0`로 브리지에 연결된 veth를 확인했지만 `brctl`은 `bridge-utils` 패키지 소속이라 최근 배포판에는 기본 설치되지 않는 경우가 많다. 요즘은 iproute2의 `bridge link show` 또는 `bridge fdb show br docker0`을 쓴다.
+세 방법은 같은 veth 쌍의 서로 다른 끝(또는 그 네임스페이스)을 본다는 점이 같고, 3.4에서 노드 `eth0`·`vxlan` 인터페이스까지 넓혀 어디서 무엇이 보이는지 비교한다.
 
 ### 1.3 손으로 연결하기: Pod의 네트워크 구성
 
@@ -152,7 +143,7 @@ iptables -t nat -D POSTROUTING -s 10.99.0.0/24 ! -o veth-host -j MASQUERADE 2>/d
 
 **한 줄 요약:** 브리지는 학습한 MAC 주소 테이블(FDB)을 보고 프레임을 상대 컨테이너의 veth로 그대로 전달하며, 이 경로에는 라우팅도 NAT도 개입하지 않는다.
 
-컨테이너 A가 컨테이너 B의 IP로 패킷을 보내면 그 패킷은 veth pair를 통해 `docker0` 브리지로 들어오고, 브리지는 FDB(Forwarding Database)를 참고해 해당 프레임을 컨테이너 B의 veth 쪽으로 전달한다. 리눅스 브리지가 하는 일은 물리 이더넷 스위치가 하는 일과 개념적으로 동일하다. 같은 네트워크 안에서는 IP 계층보다 아래인 L2 계층에서 통신이 끝난다.
+> **입문 책에서 배운 것:** 같은 브리지 안은 L2 스위칭(라우팅·NAT 없음)이고 밖으로는 라우팅 + MASQUERADE다([입문 책 11장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/2부-컨테이너와-Docker/11-Docker-네트워크.md)).
 
 ```
 컨테이너 A eth0 ─ vethA ─┐
@@ -180,18 +171,13 @@ Docker를 설치하면 `docker0`이라는 리눅스 브리지가 만들어지고
 
 ### 3.1 컨테이너에서 외부로: 게이트웨이 → 포워딩 → MASQUERADE
 
-**한 줄 요약:** 목적지가 같은 브리지 대역 밖이면 컨테이너의 라우팅 테이블이 기본 게이트웨이(브리지 IP, 예: 172.17.0.1)를 다음 홉으로 정하고, 호스트 커널이 IP 포워딩 경로로 올려 출발지를 호스트 IP로 치환한다.
+**한 줄 요약:** 목적지가 브리지 대역 밖이면 컨테이너의 기본 게이트웨이(브리지 IP)가 다음 홉이고, 호스트 커널이 IP 포워딩으로 올려 출발지를 호스트 IP로 치환한다(1.3의 직접 구성에서는 `ip route add default via`·`ip_forward`·MASQUERADE 세 가지가 모두 필요했다).
 
-| 통신 | 경로 | 계층 |
-|---|---|---|
-| 같은 브리지 안의 컨테이너 ↔ 컨테이너 | veth → 브리지가 MAC 주소 테이블(FDB)로 전달 → 상대 veth | L2 스위칭 (라우팅·NAT 없음) |
-| 컨테이너 → 외부 | 컨테이너의 기본 게이트웨이(브리지 IP) → 호스트 커널 IP 포워딩 → 출발지 IP를 호스트 IP로 치환(MASQUERADE) | 라우팅 + NAT |
+> **입문 책에서 배운 것:** 컨테이너 → 외부는 기본 게이트웨이(예: 172.17.0.1) → 호스트 IP 포워딩 → `POSTROUTING`의 MASQUERADE(아웃바운드 NAT)다([입문 책 11장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/2부-컨테이너와-Docker/11-Docker-네트워크.md)). NAT 규칙의 상세는 [5장](05-netfilter-iptables-NAT-conntrack.md)에서 다룬다.
 
 ```bash
 iptables -t nat -L POSTROUTING -n -v | grep -i MASQUERADE
 ```
-
-정리하면 같은 브리지 안은 "스위칭"이고 외부로 나가는 통신은 "라우팅 + NAT"라는 완전히 다른 계층의 동작이다. NAT 규칙의 상세는 [5장](05-netfilter-iptables-NAT-conntrack.md)에서 다룬다.
 
 ### 3.2 노드 사이: 라우팅 테이블이 곧 경로다
 
@@ -221,6 +207,15 @@ ip -d link show | grep -A2 vxlan
 bridge fdb show dev vxlan.calico   # 또는 flannel.1
 ```
 
+이 노드당 한 줄 경로 설계에는 규모 상한이 따라온다. 클러스터 Pod CIDR(예: `10.244.0.0/16`)은 마스크 크기(`--node-cidr-mask-size`, 예: `/24`)만큼 노드별로 쪼개진다.
+
+```
+최대 노드 수 = 2^(노드 마스크 - 클러스터 마스크) = 2^(24 - 16) = 256개
+노드당 최대 Pod 수 = /24의 사용 가능 주소(254개)와 kubelet --max-pods(기본 110) 중 작은 값
+```
+
+이 값은 클러스터를 만들 때 정해야 하며 운영 중에 넓히기는 번거롭다.
+
 ### 3.3 Pod 안에서 보는 라우팅
 
 **한 줄 요약:** `kubectl exec pod-a -- ip route`와 `ip addr`로 Pod 쪽 설정을, 호스트에서 `nsenter ... ip route`로 컨테이너 쪽 설정을 본다.
@@ -238,18 +233,27 @@ nsenter -t $PID -n ip route
 '
 ```
 
-애플리케이션 이미지가 너무 미니멀해 디버그 컨테이너조차 넣기 부담스러우면, Pod 안이 아니라 호스트 쪽 veth에서 캡처할 수 있다. Pod의 네트워크 네임스페이스는 veth 쌍의 한쪽 끝이고 다른 쪽 끝은 호스트 네임스페이스(또는 CNI 브리지)에 있기 때문이다. 원천은 veth 이름을 찾는 명령과 캡처를 다음처럼 든다(1.2절의 `@ifN` 짝 찾기와 같은 원리다).
+Pod 안이 아니라 호스트 쪽 veth에서 캡처하는 방법은 1.2에서 다뤘다.
+
+### 3.4 캡처 지점별로 보이는 패킷
+
+**한 줄 요약:** 같은 Pod 간 핑이라도 네이티브 라우팅에서는 노드 `eth0`에 평범한 ICMP가 보이고, VXLAN 오버레이에서는 `eth0`에 UDP(4789 또는 8472)로 감싼 패킷이 보이며 원본은 `vxlan.*` 인터페이스에서만 보인다.
+
+서로 다른 노드의 Pod `pa`·`pb` 사이 핑을 양쪽 노드에서 동시에 캡처하는 실험이 원천에 있다.
 
 ```bash
-# Pod에 연결된 veth 인터페이스 이름 찾기
-docker exec k8s-guide-worker sh -c \
-  'ethtool -S <pod-내부-eth0-ifindex> 2>/dev/null; ip link | grep veth'
-
-# 호스트에서 해당 veth로 캡처 — Pod 내부에 아무것도 설치하지 않고도 확인 가능
-docker exec k8s-guide-worker tcpdump -i <veth이름> -n
+PB_IP=$(kubectl get pod pb -o jsonpath='{.status.podIP}')
+docker exec k8s-guide-worker tcpdump -i any -nn "host $PB_IP" -c 5 &
+docker exec k8s-guide-worker2 tcpdump -i any -nn "icmp" -c 5 &
+kubectl exec pa -- ping -c 3 $PB_IP
 ```
 
-경로를 따라가는 진단 순서는 [23장](../4부-진단/23-네트워크-장애-진단.md)에서 완성한다.
+| 환경 | 노드 `eth0`에서 보이는 것 | 내부 원본 패킷 |
+|---|---|---|
+| 네이티브 라우팅(kindnet) | 목적지가 그대로 `PB_IP`인 평범한 ICMP | `eth0`에서 그대로 보임 |
+| VXLAN 오버레이(Calico VXLAN) | UDP 포트 4789(또는 8472)로 감싸진 패킷 | `vxlan.calico` 인터페이스에서만 보임 |
+
+캡슐화 유무가 `tcpdump` 결과로 바로 드러나므로, 양쪽 노드에서 동시에 캡처하면 패킷이 어디서 사라지는지 정확히 알 수 있다(`tcpdump -i any -nn "udp port 8472"`로 VXLAN 내부 패킷도 본다). 경로를 따라가는 진단 순서는 [23장](../4부-진단/23-네트워크-장애-진단.md)에서 완성한다.
 
 ---
 
@@ -300,12 +304,12 @@ IPVS 모드에서 외부 IP 광고가 꼬이면 `sysctl net.ipv4.conf.all.arp_ig
 
 ### 시나리오로 확인하기
 
-1. **상황:** `docker exec web ip link show eth0` 결과가 `6: eth0@if7`이다. 호스트에서 이 컨테이너의 트래픽을 `tcpdump`로 보고 싶다.
-   **질문:** 어느 인터페이스를 지정해야 하나?
+1. **상황:** 운영 Pod의 이미지가 너무 미니멀해 셸도 `tcpdump`도 없고, 디버그 컨테이너를 붙이기도 부담스럽다. 그 Pod로 들어오는 트래픽을 보고 싶다.
+   **질문:** 어디서 캡처하나?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   `@if7`은 veth pair 반대쪽 끝의 인덱스이므로 호스트에서 `ip link show type veth`(또는 `ip link show`)로 인덱스 7을 가진 `vethXXXX`를 찾는다. 그것이 이 컨테이너의 호스트 쪽 끝이며, `bridge link show`로 브리지 연결도 확인한다. 이미지에 `ip`가 없으면 `nsenter --target $PID --net -- ip link show eth0`를 쓴다. → 코어 1 (1.2)
+   Pod의 네트워크 네임스페이스는 veth 쌍의 한쪽 끝이고 다른 쪽은 호스트 네임스페이스(또는 CNI 브리지)에 있다. 노드에서 `ethtool -S <pod-내부-eth0-ifindex>`와 `ip link | grep veth`로 짝 veth 이름을 찾아 `tcpdump -i <veth이름> -n`을 건다. Pod 내부에는 아무것도 설치하지 않는다. 대안은 `nsenter -t <pid> -n tcpdump -i eth0 -n`이다. → 코어 1 (1.2)
 
    </details>
 
@@ -323,7 +327,7 @@ IPVS 모드에서 외부 IP 광고가 꼬이면 `sysctl net.ipv4.conf.all.arp_ig
 
    <details markdown="1"><summary>답 확인</summary>
 
-   원천의 증상별 원인표에서 "같은 노드는 되고 다른 노드는 안 됨"은 오버레이/라우팅 또는 MTU 문제다. 노드에서 `ip route | grep <Pod CIDR>`로 상대 노드 Pod 대역으로 가는 경로(`via <노드IP>` 또는 `vxlan` 인터페이스)가 있는지, `ip -d link show | grep -A2 vxlan`, `ip neigh`를 보고, 양쪽 노드에서 `tcpdump -i any -nn "host <PodIP>"`로 어디서 패킷이 사라지는지 확인한다. → 코어 3 (3.2), 코어 4 (4.2)
+   원천의 증상별 원인표에서 "같은 노드는 되고 다른 노드는 안 됨"은 오버레이/라우팅 또는 MTU 문제다. 노드에서 `ip route | grep <Pod CIDR>`로 상대 노드 Pod 대역으로 가는 경로(`via <노드IP>` 또는 `vxlan` 인터페이스)가 있는지, `ip -d link show | grep -A2 vxlan`, `ip neigh`를 보고, 양쪽 노드에서 `tcpdump -i any -nn "host <PodIP>"`로 어디서 패킷이 사라지는지 확인한다. → 코어 3 (3.2, 3.4), 코어 4 (4.2)
 
    </details>
 
@@ -338,7 +342,7 @@ IPVS 모드에서 외부 IP 광고가 꼬이면 `sysctl net.ipv4.conf.all.arp_ig
 빈 종이에 아래 골격을 채워 보세요. 채우지 못한 칸이 다시 읽을 곳입니다.
 
 ```
-코어 1 veth = 항상 ____ 으로 생성, 한쪽 입력 → 다른 쪽 ____
+코어 1 veth = 항상 ____ 으로 생성, 한쪽 입력 → 다른 쪽 ____ ; 캡처 지점 3: Pod 안(____/nsenter) / 호스트 쪽 ____ / 노드 ____
   컨테이너 쪽 ____ ◄──► 호스트 쪽 ____ → ____ 연결.  짝 찾기: eth0@if__ 의 __ = 반대편 ____
   손으로: ip link add ____ type veth peer name ____ → ip link set ____ netns ____
           → 네임스페이스 안 이름을 ____ 로 → IP → ip route add ____ via ____
@@ -347,7 +351,8 @@ IPVS 모드에서 외부 IP 광고가 꼬이면 `sysctl net.ipv4.conf.all.arp_ig
   확인: ____ link show / ____ fdb show br docker0   (구: ____ show, bridge-utils)
 
 코어 3 대역 밖: 컨테이너 → 기본 ____ (브리지 IP) → 호스트 ____ → ____ (출발지를 호스트 IP로)
-  노드 간(네이티브): 10.244.2.0/24 ____ 192.168.1.11 dev eth0 proto ____ (BGP)
+  노드 간(네이티브): 10.244.2.0/24 ____ 192.168.1.11 dev eth0 proto ____ (BGP) / 최대 노드 수 = 2^(__-__) = ____
+  VXLAN 캡처: 노드 eth0 = UDP ____ 또는 ____ , 원본 = ____ 인터페이스
   로컬 Pod: ... dev veth... scope ____ / 오버레이: dev ____.calico 또는 flannel.1
 
 코어 4 IPv4 = ____ , IPv6 = ____ (ICMPv6 멀티캐스트) / 확인: ip ____
@@ -356,35 +361,35 @@ IPVS 모드에서 외부 IP 광고가 꼬이면 `sysctl net.ipv4.conf.all.arp_ig
 
 ### 2. 인출 질문
 
-1. veth pair란 무엇이며 Docker는 컨테이너 연결에 어떻게 쓰는가?
+1. 손으로 Pod의 네트워크를 만들 때 veth를 만들고 네임스페이스로 옮겨 `eth0`으로 쓰는 순서는?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   항상 쌍으로 생성되는 가상 인터페이스로, 한쪽으로 들어간 패킷이 다른 쪽으로 그대로 나온다. Docker는 한쪽 끝을 컨테이너 네트워크 네임스페이스로 옮겨(`eth0`) 다른 끝은 호스트에 남겨 브리지에 연결한다. → 코어 1 (1.1)
+   `ip netns exec pod-lab ip link set lo up` → `ip link add veth-host type veth peer name veth-pod` → `ip link set veth-pod netns pod-lab` → 네임스페이스 안에서 `veth-pod`를 `eth0`으로 이름 바꾸고 `ip addr add 10.99.0.2/24`·`ip link set eth0 up` → 호스트 쪽 `ip addr add 10.99.0.1/24 dev veth-host`·`ip link set veth-host up` → `ip route add default via 10.99.0.1`. CNI 플러그인 `ADD`가 하는 일과 같다. → 코어 1 (1.3)
 
    </details>
 
-2. 컨테이너 안 `eth0@if7`에서 호스트 쪽 짝을 찾는 방법은?
+2. 이미지에 도구가 없는 Pod의 패킷을 보는 방법 세 가지는?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   `@if` 뒤 숫자는 반대쪽 끝의 인터페이스 인덱스다. 호스트에서 `ip link show type veth` 또는 `ip link show`로 같은 인덱스를 가진 인터페이스를 찾고, `bridge link show`로 브리지 연결을 확인한다. → 코어 1 (1.2)
+   ① `kubectl debug -it <pod> --image=nicolaka/netshoot --target=<container> -- tcpdump` ② 노드에서 `nsenter -t <pid> -n tcpdump -i eth0 -n` ③ 호스트 쪽 veth에서 `tcpdump -i <veth이름> -n`(짝은 `ethtool -S <ifindex>`와 `ip link | grep veth`로 찾는다). Pod의 네트워크 네임스페이스는 veth 쌍의 한쪽 끝이기 때문이다. → 코어 1 (1.1, 1.2)
 
    </details>
 
-3. 같은 브리지의 두 컨테이너 통신에 라우팅이나 NAT가 개입하는가?
+3. 같은 브리지의 두 컨테이너 통신에 라우팅이나 NAT가 개입하는가? 브리지 연결과 MAC 테이블은 어떻게 보는가?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   아니다. 브리지가 FDB(MAC 주소 테이블)를 보고 프레임을 상대 컨테이너의 veth로 전달하는 L2 스위칭이다. 물리 스위치와 개념적으로 동일하며 IP 계층 아래에서 끝난다. → 코어 2 (2.1)
+   아니다. 브리지가 FDB(MAC 주소 테이블)를 보고 프레임을 상대 컨테이너의 veth로 전달하는 L2 스위칭이다. `bridge link show`로 연결을, `bridge fdb show br docker0`으로 FDB를 본다(`brctl`은 `bridge-utils` 의존). → 코어 2 (2.1)
 
    </details>
 
-4. 컨테이너가 외부로 나갈 때의 경로는?
+4. 클러스터 CIDR이 `/16`, 노드별 서브넷이 `/24`일 때 최대 노드 수와 노드당 Pod 수 상한은? 네이티브 라우팅과 VXLAN에서 `tcpdump` 결과가 어떻게 다른가?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   컨테이너의 기본 게이트웨이(브리지 IP, 예: 172.17.0.1) → 호스트 커널 IP 포워딩 → `nat` 테이블 `POSTROUTING`의 MASQUERADE로 출발지를 호스트 IP로 치환한다(아웃바운드 NAT). → 코어 3 (3.1)
+   최대 노드 수는 `2^(24−16)=256`, 노드당 최대 Pod 수는 `/24`의 사용 가능 주소(254개)와 `kubelet --max-pods`(기본 110) 중 작은 값이다. 네이티브 라우팅에서는 노드 `eth0`에서 목적지가 그대로 Pod IP인 평범한 ICMP가 보이고, VXLAN에서는 `eth0`에 UDP 4789(또는 8472)로 감싼 패킷이 보이며 원본은 `vxlan.calico`에서만 보인다. → 코어 3 (3.2, 3.4)
 
    </details>
 
@@ -454,4 +459,4 @@ IPVS 모드에서 외부 IP 광고가 꼬이면 `sysctl net.ipv4.conf.all.arp_ig
 
 ---
 
-*원문 근거: docker-fundamental/12_브리지_네트워크_심화.md (12.1 기본 브리지와 사용자 정의 브리지, 12.2 veth pair, 12.3 통신 경로의 차이); kubernetes-textbook-main/05-내부-동작-파헤치기/19-Pod를-밑바닥부터-만들어-보기.md (19.3 단계 1·2 veth·라우팅·NAT 구성); Kubernetes_Internals_Network_Guide/03-네트워크/13-네트워킹-모델과-CNI-스펙.md (13.5 네이티브 라우팅 경로·kind 실습 라우트); kubernetes-textbook-main/05-내부-동작-파헤치기/23-CNI와-대규모-네트워크-트러블슈팅.md (23.6 진단 플로차트: ip route, ip neigh, ip -d link show, 증상별 원인표); docker-fundamental/18_IPv6와_2026년_현재의_네트워크_스택.md (ARP/NDP 설명); Kubernetes_Internals_Network_Guide/03-네트워크/15-kube-proxy-데이터플레인-해부.md (15.2 strict ARP), 19-eBPF-데이터플레인과-네트워크-트러블슈팅.md (veth 인덱스 확인 명령); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/09-서비스와-클러스터-네트워킹-기초.md (MetalLB ARP/BGP 한 줄)*
+*원문 근거: docker-fundamental/12_브리지_네트워크_심화.md (12.1 기본 브리지와 사용자 정의 브리지, 12.2 veth pair, 12.3 통신 경로의 차이); kubernetes-textbook-main/05-내부-동작-파헤치기/19-Pod를-밑바닥부터-만들어-보기.md (19.3 단계 1·2 veth·라우팅·NAT 구성); kubernetes-textbook-main 23.5 (IP 고갈 계산); Kubernetes_Internals_Network_Guide/03-네트워크/13-네트워킹-모델과-CNI-스펙.md (13.5 네이티브 라우팅 경로·kind 실습 라우트); kubernetes-textbook-main/05-내부-동작-파헤치기/23-CNI와-대규모-네트워크-트러블슈팅.md (23.6 진단 플로차트: ip route, ip neigh, ip -d link show, 증상별 원인표); docker-fundamental/18_IPv6와_2026년_현재의_네트워크_스택.md (ARP/NDP 설명); Kubernetes_Internals_Network_Guide/03-네트워크/15-kube-proxy-데이터플레인-해부.md (15.2 strict ARP), 19-eBPF-데이터플레인과-네트워크-트러블슈팅.md (19.4 Pod 네임스페이스·veth 캡처); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/09-서비스와-클러스터-네트워킹-기초.md (MetalLB ARP/BGP 한 줄)*

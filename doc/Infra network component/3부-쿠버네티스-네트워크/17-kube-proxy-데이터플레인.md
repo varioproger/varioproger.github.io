@@ -18,7 +18,7 @@ nav_order: 17
 
 > **한 문장:** kube-proxy는 Service/EndpointSlice를 watch해 노드 커널의 규칙(iptables·IPVS·nftables)을 다시 써 주는 컨트롤러일 뿐이고, 패킷 처리(DNAT와 conntrack 되돌림)는 커널이 하며, 모드에 따라 규칙 조회가 선형 O(n)(iptables)이거나 해시 O(1)(IPVS, nftables 맵)이다.
 
-1. **kube-proxy는 데이터 경로에 없다** — ① API 서버 watch → ② 노드 규칙 갱신 → ③ 커널이 패킷 처리. DNAT는 연결의 첫 패킷에만 적용되고 응답·후속 패킷은 conntrack이 처리한다.
+1. **kube-proxy는 규칙의 작성자일 뿐 데이터 경로에 없다** — 패킷은 `PREROUTING`/`OUTPUT` 훅에서 netfilter 규칙을 만나 DNAT되고, 그 변환 정보를 conntrack이 기억한다. DNAT는 연결의 첫 패킷에만 적용되고 응답·후속 패킷은 conntrack이 역변환하므로, kube-proxy가 죽으면 새 변경이 반영되지 않을 뿐 기존 연결은 그대로다. `docker-proxy`와 달리 패킷을 받아 넘기는 중계 프로세스가 아니다.
 2. **iptables 모드는 체인 사슬이다** — `KUBE-SERVICES → KUBE-SVC-* → KUBE-SEP-*`에서 i번째 엔드포인트에 `1/(N−i+1)` 확률을 걸어 균등 분배하고, 마지막에 DNAT한다. 갱신은 증분이 아니라 `iptables-restore`로 전체 교체한다.
 3. **모드는 조회 구조의 선택이다** — iptables(선형 O(n)), IPVS(`kube-ipvs0` + 해시 O(1), 하지만 공식 폐기 경로), nftables(집합/맵, GA), eBPF(Cilium은 netfilter 자체를 우회).
 
@@ -55,24 +55,18 @@ nav_order: 17
 
 ### 1.1 watch → 규칙 갱신 → 커널 처리
 
-**한 줄 요약:** kube-proxy는 노드마다 도는 DaemonSet으로, Service와 EndpointSlice를 감시해 그 노드의 데이터플레인을 다시 프로그래밍한다.
+**한 줄 요약:** watch → 규칙 갱신 → 커널 처리라는 3단계는 입문 책에서 배운 그대로이고, 이 절은 그 결과가 **노드마다 로컬로** 결정된다는 점과 "proxy"라는 이름이 만드는 오해를 다룬다.
 
-16장에서 Service(가상 좌표)와 EndpointSlice(실제 Pod IP 목록)를 봤다([16장](16-Service와-EndpointSlice.md)). kube-proxy가 하는 일은 정확히 이것이다. **EndpointSlice의 내용을 노드 커널이 이해하는 규칙으로 번역한다.**
+> **입문 책에서 배운 것** — kube-proxy는 노드마다 도는 DaemonSet으로 Service/EndpointSlice를 watch해 iptables/IPVS 규칙을 갱신할 뿐 패킷을 처리하지 않으며, 죽어도 기존 연결은 유지되고 이후 변경만 반영되지 않는다([입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md)).
 
-```
-① API 서버를 watch — Service와 EndpointSlice 변경 감지
-② 노드의 데이터플레인(iptables / IPVS / nftables) 규칙 갱신
-③ 실제 패킷 처리는 커널이 한다 — kube-proxy는 데이터 경로에 없다
-```
-
-kube-proxy가 감시하는 것은 두 리소스뿐이다. **Service**(ClusterIP, 포트, 타입 같은 "정책")와 **EndpointSlice**(Service 뒤에 실제로 떠 있는 Pod IP:포트 목록, Pod가 뜨고 죽을 때마다 바뀌는 부분)다. 이 결과로 "ClusterIP로 보낸 패킷이 어느 백엔드 Pod로 갈지"가 각 노드에서 **로컬로** 결정된다. 트래픽이 어떤 중앙 로드밸런서도 거치지 않는 이유다.
-
-kube-proxy 프로세스가 죽어도 이미 프로그래밍된 규칙은 커널에 남아 있으므로 기존 연결은 끊기지 않는다. 다만 그 이후의 Service/EndpointSlice 변경은 반영되지 않는다. CNI가 노드 간에 패킷을 옮기는 방법([15장](15-CNI-플러그인과-패킷-경로.md))을 정했다면, kube-proxy는 **그 패킷이 노드에 도착한 뒤 어떤 목적지로 바뀔지**를 정하는 층이다.
+이 장이 보태는 것은 위치다. kube-proxy가 감시하는 두 리소스 중 **EndpointSlice**는 Pod가 뜨고 죽을 때마다 바뀌는 부분이고, 그 변화가 각 노드의 커널 규칙으로 번역되므로 "ClusterIP로 보낸 패킷이 어느 백엔드 Pod로 갈지"는 중앙 로드밸런서 없이 각 노드에서 **로컬로** 정해진다([16장](16-Service와-EndpointSlice.md)). CNI가 노드 간에 패킷을 옮기는 방법([15장](15-CNI-플러그인과-패킷-경로.md))을 정했다면, kube-proxy는 **그 패킷이 노드에 도착한 뒤 어떤 목적지로 바뀔지**를 정하는 층이다.
 
 ```bash
 kubectl get pods -n kube-system -l k8s-app=kube-proxy
 kubectl logs -n kube-system -l k8s-app=kube-proxy --tail=20
 ```
+
+**이름이 만드는 오해 — Docker의 `docker-proxy`와 대조.** Docker의 `docker-proxy`는 이름 그대로 **사용자 공간 중계 프로세스**다. 포트를 게시할 때마다 dockerd가 호스트 포트를 직접 bind해 리스닝하는 프로세스를 하나씩 띄우고, 들어온 연결을 컨테이너 IP:포트로 `recv`/`send`하듯 중계한다. 기본 경로는 `DOCKER` 체인의 커널 DNAT이고 `docker-proxy`는 hairpin 같은 경우를 보완하는 안전판이다([8장](../2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md)). kube-proxy는 이 `docker-proxy`와 다르다. 커널 규칙을 **써 주는 쪽**이지 패킷을 받아 넘기는 프로세스가 아니다.
 
 ### 1.2 DNAT와 conntrack — 되돌아오는 패킷
 
@@ -104,6 +98,8 @@ tcp 6 431999 ESTABLISHED src=10.244.1.9 dst=10.96.142.88 sport=34567 dport=80 \
 ```
 
 두 번째 `src=`/`dst=` 쌍이 conntrack이 기억하는 **역변환 정보**다.
+
+> **[보충]** DNAT는 `PREROUTING`(또는 로컬 발신이면 `OUTPUT`)에서 일어나 라우팅 결정보다 앞서므로, 커널은 목적지가 이미 Pod IP로 바뀐 패킷을 놓고 "어디로 보낼지"를 다시 판단한다. 같은 순서를 Docker 포트 게시 경로(`PREROUTING` → DNAT → 라우팅 결정 → `FORWARD`)에서 원천이 보여 준다([8장](../2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md)).
 
 ## 코어 2. iptables 모드는 체인 사슬이다
 
@@ -187,6 +183,8 @@ docker exec k8s-guide-worker iptables -t nat -S KUBE-SEP-AAAAAAAAAAAAAA
 **목적지가 바뀐다.** `10.96.142.88:80` → `10.244.1.3:8080`. ClusterIP의 정체는 이 iptables 규칙일 뿐이다.
 
 첫 번째 규칙은 **헤어핀(hairpin) 대응**이다. Pod가 자기 자신이 속한 Service를 호출해 결국 자기 자신에게 되돌아오는 경우, SNAT 없이는 응답 패킷의 출발지가 여전히 Pod 자신이 되어 커널이 그 응답을 "내가 보낸 요청에 대한 응답"으로 인식하지 못한다. `KUBE-MARK-MASQ`로 표시를 남기면 이후 `KUBE-POSTROUTING` 체인이 이 표시를 보고 마스커레이드를 적용한다.
+
+같은 문제를 Docker는 다르게 풀었다. 컨테이너가 자기가 게시한 포트를 호스트 주소로 되돌아 접속하면 패킷이 나갔던 인터페이스로 돌아오는 경로가 생기는데, 리눅스 브리지와 conntrack 조합이 이를 항상 매끄럽게 처리하지는 못해서 과거에는 `docker-proxy`가 커널 DNAT를 우회해 사용자 공간에서 직접 중계했다. 원천은 최신 배포판에서는 브리지 netfilter 훅과 conntrack이 개선돼 대부분 커널 DNAT만으로 처리되지만 아주 오래된 커널이나 브리지 netfilter가 꺼진 환경에서는 어긋날 수 있다고 적는다([8장](../2부-Docker-네트워크/08-브리지-네트워크와-포트-게시.md)). 쿠버네티스는 이 보완을 사용자 공간 프록시가 아니라 `KUBE-SEP-*` 체인 첫 줄의 마크 규칙으로 커널 안에서 한다.
 
 ```bash
 docker exec k8s-guide-worker iptables -t nat -S KUBE-POSTROUTING
@@ -310,11 +308,12 @@ Service가 1개든 5,000개든 이 iptables 규칙은 한 줄이다.
 
 ### 3.2 iptables vs IPVS 비교
 
+> **입문 책에서 배운 것** — iptables는 선형 O(n)·랜덤 분배 하나, IPVS는 해시 O(1)·여러 스케줄러라는 조회 구조 차이와 "Service 1,000개 이상이면 IPVS 고려"라는 구판 권고([입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md)). 이 책은 3.3절의 폐기 경로를 따른다.
+
+입문 책의 비교표에 없는, 실제로 운영 판단을 가르는 차이는 다음 셋이다.
+
 | | iptables | IPVS |
 |---|---|---|
-| 조회 방식 | **선형 순회(O(n))** — 체인을 순서대로 평가 | **해시 테이블 조회(O(1))** |
-| Service 수 증가 시 | 규칙 수와 평가 시간이 비례해 증가 | 조회 비용이 거의 일정 |
-| 로드밸런싱 알고리즘 | 확률 기반 랜덤 하나뿐 | rr/lc/dh/sh/wrr 등 다양 |
 | 갱신 방식 | 전체 규칙셋 재구성 후 `iptables-restore` | 가상/실제 서버 단위로 증분 갱신 가능 |
 | 커널 요구사항 | 기본 내장 | `ip_vs*` 커널 모듈 로드 필요 |
 | 부가 기능(SNAT 등) | iptables 규칙 | iptables + ipset 조합 (완전히 벗어나지는 않음) |
@@ -526,6 +525,14 @@ nftables 전환을 검토할 때는 Service가 수백&#126;수천 개 규모이�
 
    </details>
 
+10. Docker의 `docker-proxy`와 kube-proxy는 이름이 비슷한데 무엇이 다르며, 헤어핀을 각각 어떻게 처리하는가?
+
+    <details markdown="1"><summary>답 확인</summary>
+
+    `docker-proxy`는 호스트 게시 포트를 bind해 연결을 컨테이너로 중계하는 사용자 공간 프로세스이고, 기본 경로인 커널 DNAT를 보완한다. kube-proxy는 패킷을 받지 않고 규칙만 쓴다. 헤어핀은 Docker가 과거에 `docker-proxy`의 사용자 공간 중계로 우회했고(최신 배포판은 대부분 커널 DNAT만으로 처리), 쿠버네티스는 `KUBE-SEP-*` 첫 줄의 `KUBE-MARK-MASQ`와 `KUBE-POSTROUTING`의 `0x4000` 마스커레이드로 커널 안에서 처리한다. → 코어 1 (1.1), 코어 2 (2.3)
+
+    </details>
+
 ### 3. 기억 고리
 
 - **C++ 유추:** kube-proxy ≈ 라우팅 테이블(해시맵/벡터)을 갱신하는 관리 스레드이고, 실제 패킷 전달은 데이터 스레드(커널)가 한다. iptables ≈ `vector` 선형 순회, IPVS/nftables 맵 ≈ `unordered_map` 조회. ⚠️ 깨지는 곳: 관리자는 규칙 소유자일 뿐 패킷을 한 번도 만지지 않고, iptables는 규칙 하나가 바뀌어도 전체를 새로 구성해 통째로 교체한다.
@@ -549,4 +556,4 @@ nftables 전환을 검토할 때는 Service가 수백&#126;수천 개 규모이�
 
 ---
 
-*원문 근거: Kubernetes_Internals_Network_Guide/03-네트워크/15-kube-proxy-데이터플레인-해부.md (15.1 iptables 모드 체인 상세, 15.2 IPVS 모드 내부, 15.3 두 모드 비교, 15.4 nftables 모드, 15.5 kube-proxy 없는 클러스터 예고, 15.6 데이터플레인 문제 진단); Kubernetes_Internals_Network_Guide/01-내부-아키텍처/06-kubelet-런타임-kube-proxy-개요.md (6.5 kube-proxy 개요); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/09-서비스와-클러스터-네트워킹-기초.md (9.5 kube-proxy, iptables·IPVS 모드); kubernetes-textbook-main/05-내부-동작-파헤치기/23-CNI와-대규모-네트워크-트러블슈팅.md (23.4 kube-proxy iptables 해부, 23.5 iptables 규칙 폭증·conntrack 고갈)*
+*원문 근거: Kubernetes_Internals_Network_Guide/03-네트워크/15-kube-proxy-데이터플레인-해부.md (15.1 iptables 모드 체인 상세, 15.2 IPVS 모드 내부, 15.3 두 모드 비교, 15.4 nftables 모드, 15.5 kube-proxy 없는 클러스터 예고, 15.6 데이터플레인 문제 진단); Kubernetes_Internals_Network_Guide/01-내부-아키텍처/06-kubelet-런타임-kube-proxy-개요.md (6.5 kube-proxy 개요); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/09-서비스와-클러스터-네트워킹-기초.md (9.5 kube-proxy, iptables·IPVS 모드); kubernetes-textbook-main/05-내부-동작-파헤치기/23-CNI와-대규모-네트워크-트러블슈팅.md (23.4 kube-proxy iptables 해부, 23.5 iptables 규칙 폭증·conntrack 고갈); docker-fundamental/12_브리지_네트워크_심화.md (12.4 포트 게시와 docker-proxy); docker-fundamental/15_DNS와_서비스_디스커버리_포트_매핑의_내부_동작.md (15.4 포트 매핑의 내부 경로, hairpin NAT)*

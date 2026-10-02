@@ -54,41 +54,31 @@ nav_order: 16
 
 ## 코어 1. ClusterIP는 "약속"이고, Service 타입은 한 겹씩 감싼다
 
-### 1.1 Service가 해결하는 세 가지
+### 1.1 호출 한 번의 순서 — 이름, 주소, 규칙, Pod
 
-**한 줄 요약:** Pod IP는 일회용이고 개수·위치를 알 수 없으며 로드밸런싱 주체도 없다. Service가 변하지 않는 가상 IP 하나로 이 셋을 해결한다.
+**한 줄 요약:** DNS는 이름을 주소로 해석할 뿐이고, 그 주소로 보낸 패킷의 목적지는 노드의 데이터플레인 규칙이 바꾼다. 모든 패킷을 중계하는 서버 프로세스는 없다.
 
-13장에서 CNI가 만드는 평평한 네트워크를 봤다([13장](13-쿠버네티스-네트워크-모델과-Pod-네트워크.md)). 그러나 **Pod IP는 일회용**이다. Pod가 재시작되거나 재스케줄되면 바뀐다. 클라이언트는 Pod가 몇 개인지, 어디 있는지 알 수 없고, 로드밸런싱을 누가 할지도 정해져 있지 않다. Service는 **변하지 않는 가상 좌표 하나**를 제공하고 그 뒤의 Pod 집합을 자동으로 추적한다. 일반적인 selector 기반 Service는 같은 네임스페이스의 Pod 라벨을 선택한다.
+> **입문 책에서 배운 것:** Service가 변하지 않는 가상 IP 하나로 일회용 Pod IP 문제를 푼다. → [입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md)
 
-### 1.2 ClusterIP — 어디에도 존재하지 않는 가상 주소
-
-**한 줄 요약:** 기본 타입. ClusterIP는 어떤 인터페이스에도 붙어 있지 않으며, 각 노드의 데이터플레인 규칙이 그 IP로 가는 패킷을 실제 Pod IP로 바꿔치기한다.
-
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: payments
-spec:
-  type: ClusterIP        # 생략 시 기본값
-  selector:
-    app: payments
-  ports:
-    - name: http
-      port: 80
-      targetPort: 8080
-```
-
-**가장 중요한 사실**: ClusterIP(`10.96.x.y` 같은 주소)는 **어떤 네트워크 인터페이스에도 바인딩되어 있지 않다.** 이 IP를 향해 `ping`을 보내면 응답이 없다. 라우팅 테이블 어디를 봐도 이 주소로 가는 물리적인 경로가 없기 때문이다.
+이 장은 그 약속이 **시간 순서로 어떻게 지켜지는지**부터 본다. 클러스터 내부의 일반 요청 한 번(`orders` Service, 80 → 8080 예)은 이렇게 흐른다.
 
 ```
-클라이언트 Pod → 10.96.142.88:80 → [iptables/IPVS 규칙] → 10.244.1.3:8080
-                (ClusterIP)                              (실제 Pod)
+① 호출 Pod → CoreDNS : orders.study.svc.cluster.local 조회
+② CoreDNS → 호출 Pod : ClusterIP 응답
+③ 호출 Pod → ClusterIP:80 으로 TCP 연결
+④ 노드 데이터 경로   : Service·EndpointSlice에 맞춘 규칙 적용
+⑤ 노드 → 선택한 Pod IP:8080 으로 전달,  ⑥ 응답은 연결 경로로 돌아온다
 ```
 
-ClusterIP는 **주소가 아니라 약속**이다. "이 값으로 패킷을 보내면 그 순간 노드의 데이터플레인이 알아서 실제 백엔드로 바꿔 준다"는 계약이고, 그 계약을 지키는 실행 로직이 17장의 주제다. 이 장에서는 "무엇으로 바꿀지"를 결정하는 목록(EndpointSlice)이 어떻게 관리되는지까지 다룬다.
+같은 Namespace에서는 `orders`, 다른 Namespace에서는 `orders.study`처럼 짧은 이름도 쓸 수 있다([18장](18-DNS와-서비스-디스커버리.md)). 세 가지를 구분한다. ①②의 DNS는 **이름을 주소로 해석할 뿐** 패킷을 중계하지 않는다. ClusterIP에는 항상 떠 있는 서버 프로세스가 없다. ④는 API 객체를 관찰한 kube-proxy 같은 구현이 구성한 규칙이고, 일반 kube-proxy는 iptables·nftables 등 선택한 구현에 맞는 규칙을 만들 뿐 모든 패킷이 그 사용자 공간 프로세스를 통과하지 않는다. eBPF 기반 대체 구현에서는 담당 구성요소가 달라질 수 있다([17장](17-kube-proxy-데이터플레인.md), [22장](22-eBPF-데이터플레인과-Cilium.md)).
 
-주요 필드는 다음과 같다.
+### 1.2 ClusterIP — "약속"과 필드
+
+**한 줄 요약:** ClusterIP는 어떤 인터페이스에도 붙지 않은 가상 좌표이고, 약속을 지키는 실행 로직은 17장이다. 이 장은 오브젝트 필드를 읽는 법을 다룬다.
+
+> **입문 책에서 배운 것:** ClusterIP는 ping에 응답하지 않는 가상 IP다. → [입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md)
+
+ClusterIP는 **주소가 아니라 약속**이다. "이 값으로 패킷을 보내면 노드의 데이터플레인이 실제 백엔드로 바꿔 준다"는 계약이고, 이 장은 "무엇으로 바꿀지"를 정하는 목록(EndpointSlice)까지 다룬다. 주요 필드는 다음과 같다.
 
 | 필드 | 의미 |
 |---|---|
@@ -102,74 +92,25 @@ ClusterIP는 **주소가 아니라 약속**이다. "이 값으로 패킷을 보�
 | `sessionAffinity` | ClientIP 등의 연결 친화성. 앱 세션 저장 기능은 아님 |
 | `publishNotReadyAddresses` | 지원 경로에서 준비되지 않은 대상도 게시하도록 하는 예외 설정 |
 
-`targetPort`에는 이름을 쓸 수 있다. Pod에서 `ports[].name: http`, `containerPort: 8080`으로 정의하고 Service에서 `targetPort: http`로 쓰면, 포트 번호가 바뀌어도 Service는 그대로다. 포트가 2개 이상이면 `name`이 필수다. 호출자는 Service의 80에 연결하고 앱은 8080에서 요청을 받는다. `targetPort`는 컨테이너가 **실제로 listen하는** 포트와 맞아야 하며, `containerPort` 필드를 적는 것만으로 앱 서버가 실행되거나 방화벽이 열리지는 않는다.
+`targetPort`에는 Pod의 `ports[].name: http`처럼 이름을 쓸 수 있어 포트 번호가 바뀌어도 Service는 그대로다. 포트가 2개 이상이면 `name`이 필수다. `targetPort`는 컨테이너가 **실제로 listen하는** 포트와 맞아야 하며, `containerPort`를 적는 것만으로 앱 서버가 실행되거나 방화벽이 열리지는 않는다. selector 기반 Service는 같은 Namespace의 Pod 라벨을 선택한다.
 
-### 1.3 NodePort와 LoadBalancer — 진입점을 한 겹씩 추가
+### 1.3 NodePort와 LoadBalancer — 계층과 실제 패킷 경로
 
-**한 줄 요약:** NodePort는 ClusterIP에 "모든 노드의 포트" 진입로를 더하고, LoadBalancer는 NodePort 위에 클라우드 LB를 얹는다.
+**한 줄 요약:** NodePort는 같은 엔드포인트 목록으로 가는 진입점을 하나 더 추가하는 것이고, LoadBalancer는 그 위에 클라우드 LB를 얹는다. 다만 이 "계층"이 항상 실제 패킷 경로는 아니다.
 
-```yaml
-spec:
-  type: NodePort
-  selector:
-    app: payments
-  ports:
-    - port: 80
-      targetPort: 8080
-      nodePort: 30080     # 기본 범위 30000-32767, 생략 시 자동 할당
-```
+> **입문 책에서 배운 것:** `LoadBalancer ⊃ NodePort ⊃ ClusterIP`, NodePort의 30000&#126;32767 범위, LB 비용. → [입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md)
 
-```
-NodePort ⊃ ClusterIP
-```
+NodePort가 더하는 것은 **모든 노드**(Pod가 있든 없든)의 지정 포트가 열려 `노드IP:30080` 트래픽도 같은 엔드포인트 목록으로 간다는 점뿐이다. 규칙 수준에서는 `KUBE-SERVICES` 대신 `KUBE-NODEPORTS`에서 같은 `KUBE-SVC-*` 체인으로 들어가는 모습으로 확인된다([17장](17-kube-proxy-데이터플레인.md) 2.4). LoadBalancer는 cloud-controller-manager의 `service` 컨트롤러가 클라우드 API로 LB를 만들고 **각 노드의 NodePort**를 백엔드로 등록한다. `EXTERNAL-IP`가 `<pending>`이면 cloud-controller-manager가 없거나(베어메탈·kind) 권한이 부족한 것이고, 온프레미스에서는 MetalLB가 그 역할을 대신한다(IP 풀을 정의하면 ARP(L2 모드)나 BGP(L3 모드)로 IP 광고).
 
-NodePort를 만들면 ClusterIP도 함께 할당되고, 클러스터 내부에서는 여전히 ClusterIP로 접근된다. 추가되는 것은 **모든 노드**(Pod가 그 노드에 있든 없든)의 지정된 포트가 열려 `노드IP:30080`으로 들어온 트래픽도 같은 엔드포인트 목록으로 라우팅된다는 점뿐이다. NodePort는 새로운 프록시 로직이 아니라 **ClusterIP로 가는 진입점을 하나 더 추가하는 것**이다.
+**계층과 실제 경로는 다를 수 있다.** `kubernetes-qustion-book`의 AWS ALB 예에서, **IP target** 방식은 Service가 설정상의 backend 연결에 쓰여도 패킷이 반드시 ClusterIP나 NodePort를 경유하지 않고 Pod IP로 가며, **instance target** 방식은 ALB → 노드 NodePort → Pod 경로다. controller는 LB 설정을 유지할 뿐 요청마다 중간에서 처리하지 않는다([19장](19-Ingress와-Gateway-API.md)).
 
-> **NodePort는 프로덕션 외부 노출용이 아니다.** 포트 범위가 30000&#126;32767로 제한되어 80/443을 쓸 수 없고, 클라이언트가 노드 IP를 알아야 하며, 앞단에 별도 로드밸런서가 필요하다. 개발·테스트나 자체 로드밸런서 뒤에서 쓴다. 프로덕션 HTTP 노출은 Ingress([19장](19-Ingress와-Gateway-API.md))다.
-
-```yaml
-spec:
-  type: LoadBalancer
-  selector:
-    app: payments
-  ports:
-    - port: 443
-      targetPort: 8443
-```
-
-```
-LoadBalancer ⊃ NodePort ⊃ ClusterIP
-```
-
-세 계층이 전부 만들어진다. cloud-controller-manager의 `service` 컨트롤러가 `type: LoadBalancer`를 발견하면 클라우드 API로 실제 로드밸런서를 프로비저닝하고, 그 백엔드로 **각 노드의 NodePort**를 등록한다.
-
-```bash
-kubectl get svc payments
-# NAME       TYPE           CLUSTER-IP     EXTERNAL-IP        PORT(S)
-# payments   LoadBalancer   10.96.142.88   a1b2c3.elb.aws...  443:31234/TCP
-```
-
-`EXTERNAL-IP`가 `<pending>`에 머무르면 cloud-controller-manager가 없거나(베어메탈·kind 기본 환경) 클라우드 API 권한이 부족한 것이다. 온프레미스에서는 MetalLB처럼 `service` 컨트롤러 역할을 대신하는 컴포넌트가 필요하다(IP 풀을 정의하면 ARP(L2 모드)나 BGP(L3 모드)로 IP를 광고한다). **비용 주의**: LoadBalancer Service 하나마다 클라우드 LB가 하나씩 생긴다. 서비스가 20개면 LB도 20개이므로, 여러 서비스를 한 진입점으로 모으는 Ingress가 필요하다.
-
-### 1.4 ExternalName — 순수 DNS 별칭
+### 1.4 ExternalName — 이름만 바꾸는 경계
 
 **한 줄 요약:** 셀렉터·엔드포인트·ClusterIP가 없고 DNS CNAME 하나만 만든다. 트래픽은 클러스터 데이터플레인을 거치지 않는다.
 
-```yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: legacy-db
-spec:
-  type: ExternalName
-  externalName: db.legacy.example.com
-```
+> **입문 책에서 배운 것:** ExternalName은 프록시 없이 CNAME만 만든다. → [입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md)
 
-```
-legacy-db.default.svc.cluster.local  →  CNAME  →  db.legacy.example.com
-```
-
-kube-proxy가 관여할 대상 자체가 없다. 클러스터 밖의 서비스를 클러스터 내부 이름 규칙으로 참조하고 싶을 때 쓰고, 나중에 그 서비스를 클러스터 안으로 옮기면 Service 정의만 바꾸면 되고 앱 코드는 그대로다. HTTP Host·TLS 이름은 별도로 맞아야 한다.
+kube-proxy가 관여할 대상 자체가 없고 CoreDNS의 CNAME 레코드(`legacy-db.default.svc.cluster.local → db.legacy.example.com`)만 만들어지며, 클라이언트가 그 도메인으로 직접 연결한다. 그래서 HTTP Host·TLS 이름은 별도로 맞아야 한다. 이 "프록시되지 않는다"는 성질이 2.4절의 selector 없는 Service(실제로 프록시·로드밸런싱된다)와의 결정적 차이다.
 
 ### 1.5 분류 주의 — 헤드리스는 별도 type이 아니다
 
@@ -390,25 +331,12 @@ spec:
 
 **한 줄 요약:** 라우팅 후보를 클러스터 전체(`Cluster`)로 볼지 그 노드의 로컬 엔드포인트(`Local`)로 한정할지 정한다. `Local`은 클라이언트 IP를 보존하지만 부하가 불균등해질 수 있다.
 
+> **입문 책에서 배운 것:** `externalTrafficPolicy`의 `Cluster`(기본: 균등 분산, SNAT로 클라이언트 IP 소실, 홉 하나 더)와 `Local`(클라이언트 IP 보존, Pod 없는 노드는 무응답·부하 불균등)의 장단점 표. → [입문 책 21장](../../Docker%20와%20Kubernetes로%20인프라%20구축할때%20알아야하는%20필수%20이론%20지식/4부-노출-데이터-운영/21-네트워크-모델과-Service.md)
+
 ```yaml
 spec:
   internalTrafficPolicy: Cluster    # 또는 Local — 클러스터 내부 트래픽
   externalTrafficPolicy: Cluster    # 또는 Local — NodePort/LoadBalancer로 들어온 외부 트래픽
-```
-
-| 값 | 동작 | 장점 | 단점 |
-|---|---|---|---|
-| `Cluster` (기본) | 어느 노드로 들어오든 클러스터 전체 엔드포인트로 분산 | 균등한 부하 분산 | 다른 노드의 Pod로 가면 홉이 늘고, 외부 트래픽은 **SNAT로 클라이언트 IP가 소실** |
-| `Local` | 요청이 도달한 그 노드의 로컬 엔드포인트로만 전달 | 홉이 없고 **클라이언트 IP 보존** | 그 노드에 Pod가 없으면 응답 없음. Pod 분포가 불균등하면 **부하 불균등** |
-
-```
-Cluster (기본):
-  외부 클라이언트 → 노드A(Pod 없음) → [SNAT] → 노드B의 Pod
-                                       └ 클라이언트 IP가 노드A의 IP로 치환됨
-
-Local:
-  외부 클라이언트 → 노드A(Pod 없음) → 응답 없음 ✗ (클라우드 LB가 헬스체크로 이 노드를 제외해야 함)
-  외부 클라이언트 → 노드B(Pod 있음) → 노드B의 Pod (원본 클라이언트 IP 그대로 도달) ✓
 ```
 
 `Cluster`에서 홉이 늘어나는 이유: 노드A로 들어온 요청이 노드B의 Pod로 가려면 노드A의 데이터플레인이 패킷을 노드B로 다시 전달해야 한다. 원본 클라이언트 IP를 보존한 채 보내면 노드B가 응답을 노드A가 아닌 클라이언트로 직접 돌려보내려 해 비대칭 경로 문제가 생기므로, 커널은 소스 주소를 노드A의 IP로 치환(SNAT/마스커레이드)한다. 그 결과 노드B의 Pod에게는 모든 요청이 "노드A에서 온 것"처럼 보인다(규칙 수준 확인은 [17장](17-kube-proxy-데이터플레인.md)의 `0x4000` 마크). **클라우드 LoadBalancer가 헬스체크로 Pod 없는 노드를 제외해 준다면** `Local`이 우수한 선택이며, 클라우드의 LoadBalancer 구현체는 이 조합(LB 헬스체크 + `Local`)을 기본 권장 패턴으로 삼는다. `internalTrafficPolicy: Local`은 같은 개념을 클러스터 내부에 적용한다(예: 노드마다 로컬 캐시 DaemonSet, NodeLocal DNSCache).
@@ -561,19 +489,19 @@ kubectl run t --rm -it --image=nicolaka/netshoot --restart=Never -- curl -s web
 
 ### 2. 인출 질문
 
-1. Service가 필요한 이유 세 가지는? ClusterIP로 ping하면 왜 응답이 없나?
+1. 클러스터 내부에서 `orders` Service를 호출할 때 시간순으로 일어나는 일은? 그중 패킷을 실제로 중계하는 프로세스가 있는 단계는 어디인가?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   Pod IP는 일회용이고, Pod의 개수·위치를 클라이언트가 알 수 없고, 로드밸런싱 주체가 없다. ClusterIP는 어떤 인터페이스에도 바인딩되지 않은 가상 좌표라서 ping에 응답할 장비가 없고, 각 노드의 데이터플레인 규칙이 그 IP로 가는 패킷을 실제 Pod IP로 바꿔치기한다. → 코어 1 (1.1, 1.2)
+   ① 호출 Pod가 CoreDNS에 `orders.<ns>.svc.cluster.local`을 조회 ② ClusterIP 응답 ③ ClusterIP:80으로 TCP 연결 ④ 노드 데이터 경로의 Service·EndpointSlice 기반 규칙 적용 ⑤ 선택된 Pod IP:8080으로 전달 ⑥ 연결 경로로 응답. DNS는 이름을 주소로 해석할 뿐 매 패킷을 중계하지 않고, ClusterIP에는 항상 떠 있는 서버 프로세스가 없으며, 일반 kube-proxy도 모든 패킷이 통과하는 사용자 공간 프로세스가 아니다(규칙 구성자). eBPF 대체 구현에서는 담당 구성요소가 달라질 수 있다. → 코어 1 (1.1, 1.2)
 
    </details>
 
-2. NodePort·LoadBalancer는 ClusterIP와 어떤 관계인가? 왜 프로덕션 HTTP 노출에 최선이 아닌가?
+2. NodePort가 "새 프록시 로직이 아니라 진입점 하나 더"라는 말은 규칙 수준에서 어떻게 확인되나? LoadBalancer ⊃ NodePort ⊃ ClusterIP 계층과 실제 패킷 경로가 다를 수 있는 예는?
 
    <details markdown="1"><summary>답 확인</summary>
 
-   포함 관계다. NodePort ⊃ ClusterIP(내부 접근 유지 + 모든 노드의 포트 진입로 추가), LoadBalancer ⊃ NodePort ⊃ ClusterIP(클라우드 LB가 각 노드 NodePort를 백엔드로 삼음). NodePort는 포트 범위 제한(80/443 불가)·노드 IP 의존·앞단 LB 필요, LoadBalancer는 서비스마다 LB가 생겨 비용이 늘어난다. 그래서 Ingress가 필요하다. → 코어 1 (1.3)
+   NodePort 트래픽은 `KUBE-SERVICES` 대신 `KUBE-NODEPORTS`(포트만으로 매칭)를 거쳐 같은 `KUBE-SVC-*` 체인으로 들어간다(17장). 계층 예외는 AWS ALB의 IP target 방식이다. Service가 설정상의 backend 연결에 쓰여도 패킷이 반드시 ClusterIP나 NodePort를 경유하지 않고 Pod IP로 직접 가며, instance target 방식이면 ALB → 노드 NodePort → Pod 경로다. 클라우드 LB는 `service` 컨트롤러가 각 노드 NodePort를 백엔드로 등록해 만든다(서비스마다 LB 하나, 비용). → 코어 1 (1.3)
 
    </details>
 
@@ -656,4 +584,4 @@ kubectl run t --rm -it --image=nicolaka/netshoot --restart=Never -- curl -s web
 
 ---
 
-*원문 근거: Kubernetes_Internals_Network_Guide/03-네트워크/14-Service와-EndpointSlice.md (14.1 Service 타입별 내부 동작, 14.2 EndpointSlice 구조와 마이그레이션 이유, 14.3 서비스 디스커버리 메커니즘, 14.4 세션 어피니티와 트래픽 정책); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/09-서비스와-클러스터-네트워킹-기초.md (9.2 Service 타입, 셀렉터 없는 Service, 9.3 Endpoints와 EndpointSlice, 9.4 헤드리스 서비스, 9.7 문제 진단); kubernetes-textbook-main/02-워크로드-실행하기/06-Pod-생명주기와-헬스-관리.md (6.4 Pod 종료의 전체 흐름); kubernetes-qustion-book/02_심화/07_통신_오브젝트.md (Service, EndpointSlice), 06_네트워크와_서비스_노출.md (3. Service와 EndpointSlice가 나누는 역할, 4. Service 종류)*
+*원문 근거: Kubernetes_Internals_Network_Guide/03-네트워크/14-Service와-EndpointSlice.md (14.1 Service 타입별 내부 동작, 14.2 EndpointSlice 구조와 마이그레이션 이유, 14.3 서비스 디스커버리 메커니즘, 14.4 세션 어피니티와 트래픽 정책); kubernetes-textbook-main/03-애플리케이션-노출과-데이터/09-서비스와-클러스터-네트워킹-기초.md (9.2 Service 타입, 셀렉터 없는 Service, 9.3 Endpoints와 EndpointSlice, 9.4 헤드리스 서비스, 9.7 문제 진단); kubernetes-textbook-main/02-워크로드-실행하기/06-Pod-생명주기와-헬스-관리.md (6.4 Pod 종료의 전체 흐름); kubernetes-qustion-book/02_심화/07_통신_오브젝트.md (Service, EndpointSlice), 06_네트워크와_서비스_노출.md (2. 일반적인 클러스터 내부 요청, 3. Service와 EndpointSlice가 나누는 역할, 4. Service 종류, 5. ALB의 IP target·instance target 경로)*
